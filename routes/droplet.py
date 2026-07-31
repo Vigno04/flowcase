@@ -227,7 +227,7 @@ def request_new_instance():
 
 	image_exists = False
 	for image in images:
-		if isGuacDroplet and f"flowcaseweb/flowcase-guac:{__version__}" in image.tags:
+		if isGuacDroplet and f"ghcr.io/vigno04/flowcase-guac:{__version__}" in image.tags:
 			image_exists = True
 			break
 
@@ -342,7 +342,7 @@ def request_new_instance():
 			)
 		else: # Guacamole droplet
 			container = utils.docker.docker_client.containers.run(
-				image=f"flowcaseweb/flowcase-guac:{__version__}",
+				image=f"ghcr.io/vigno04/flowcase-guac:{__version__}",
 				name=name,
 				environment={"GUAC_KEY": current_user.auth_token[:32]},
 				detach=True,

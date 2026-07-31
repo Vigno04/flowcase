@@ -9,7 +9,7 @@ services:
     build:
       context: .
       dockerfile: web.Dockerfile
-    image: flowcaseweb/flowcase
+    image: ghcr.io/vigno04/flowcase
     container_name: flowcase-web
     restart: unless-stopped
     volumes:

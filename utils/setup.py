@@ -74,7 +74,7 @@ def create_default_users():
 def create_default_registry():
 	"""Create default registry if none exists"""
 	if Registry.query.count() == 0:
-		flowcase_registry = Registry(url="https://registry.flowcase.org")
+		flowcase_registry = Registry(url="https://raw.githubusercontent.com/vigno04/droplet-images/main")
 		db.session.add(flowcase_registry)
 		db.session.commit()
 

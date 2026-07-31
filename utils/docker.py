@@ -125,7 +125,7 @@ def force_pull_required_images():
 		required_images = [
 			# Guacamole image (always required)
 			{
-				"name": f"flowcaseweb/flowcase-guac:{__version__}",
+				"name": f"ghcr.io/vigno04/flowcase-guac:{__version__}",
 				"description": "Guacamole VNC Server"
 			}
 		]
@@ -189,7 +189,7 @@ def pull_images():
 		required_images = [
 			# Guacamole image (always required)
 			{
-				"name": f"flowcaseweb/flowcase-guac:{__version__}",
+				"name": f"ghcr.io/vigno04/flowcase-guac:{__version__}",
 				"description": "Guacamole VNC Server"
 			}
 		]
@@ -312,7 +312,7 @@ def get_images_status():
 			{
 				"id": "guac",
 				"name": "Guacamole",
-				"image": f"flowcaseweb/flowcase-guac:{__version__}",
+				"image": f"ghcr.io/vigno04/flowcase-guac:{__version__}",
 				"description": "Guacamole VNC Server"
 			}
 		]
