@@ -307,15 +307,8 @@ def get_images_status():
 	try:
 		from models.droplet import Droplet
 		
-		# Define all required images
-		required_images = [
-			{
-				"id": "guac",
-				"name": "Guacamole",
-				"image": f"ghcr.io/vigno04/flowcase-guac:{__version__}",
-				"description": "Guacamole VNC Server"
-			}
-		]
+		# Define all required images (Guacamole is hidden from UI)
+		required_images = []
 		
 		# Add droplet images from database
 		droplets = Droplet.query.all()
