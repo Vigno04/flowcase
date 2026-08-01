@@ -84,6 +84,8 @@ document.addEventListener('click', (e) => {
 			modalContent.classList.remove('sidebar-active');
 		}
 	}
+}
+
 });
 
 // Close sidebar when selecting a menu item on mobile
@@ -246,6 +248,8 @@ function AdminChangeTab(tab, element = null)
 				});
 			});
 
+			window.adminRegistryDroplets = droplets;
+			window.adminHostArch = json["host_architecture"];
 			flowcase_version = json["flowcase_version"];
 
 			//set droplet registry name
@@ -290,30 +294,29 @@ function AdminChangeTab(tab, element = null)
 				
 				<hr>
 
+				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+					<h3 style="margin: 0;">Available Droplets</h3>
+					<label style="display: flex; align-items: center; cursor: pointer;">
+						<input type="checkbox" id="registry-compat-filter" checked onchange="RenderRegistryDroplets()" style="margin-right: 5px;">
+						Show only compatible ones
+					</label>
+				</div>
+
 				<table class="admin-modal-table">
-					<tr>
-						<th>Name</th>
-						<th>Image</th>
-						<th>Registry</th>
-						<th>Actions</th>
-					</tr>
-					${droplets.map(droplet => `
+					<thead>
 						<tr>
-							<td><div><img src="${droplet.image_path ? droplet.image_path : '/static/img/droplet_default.jpg'}"><p>${droplet.display_name}</p></div></td>
-							<td>
-								<select style="width: 100%">
-									${droplet.container_docker_tags.map((tag, index) => `
-										<option ${index === droplet.tagdefaultindex ? 'selected' : ''} value="${tag}">${droplet.container_docker_image}:${tag}</option>
-									`).join('')}
-								</select>
-							</td>
-							<td>${droplet.registry_name}</td>
-							<td class="admin-modal-table-actions">
-								<i class="fas fa-edit" onclick="ShowEditDropletRegistry('${droplet.display_name}', '${droplet.description}', '${droplet.image_path}', '${droplet.container_docker_registry}', '${droplet.container_docker_image}', this.parentElement.parentElement.querySelector('select').value)"></i>
-							</td>
+							<th>Name</th>
+							<th>Image</th>
+							<th>Registry</th>
+							<th>Actions</th>
 						</tr>
-					`).join('')}
+					</thead>
+					<tbody id="registry-droplets-body">
+					</tbody>
+				</table>
 			`;
+			// Initial render
+			RenderRegistryDroplets();
 			});
 			break;
 		case 'instances':
@@ -1578,7 +1581,9 @@ function SaveDroplet(droplet_id = null)
 							if (pullJson["success"] == true) {
 								CreateNotification("Docker image downloaded successfully.", "success");
 							} else {
-								CreateNotification("Failed to download Docker image. You can download it manually from Admin → Images.", "warning");
+								var pullError = pullJson["error"] || pullJson["message"] || "Failed to download Docker image. You can download it manually from Admin → Images.";
+								if (typeof pullError === 'object') { pullError = JSON.stringify(pullError); }
+								CreateNotification(String(pullError), "warning");
 							}
 						}
 					};
@@ -1601,7 +1606,9 @@ function SaveDroplet(droplet_id = null)
 			else
 			{
 				if (json["error"] != null) {
-					CreateNotification(json["error"], "error");
+					var saveError = json["error"];
+					if (typeof saveError === 'object') { saveError = JSON.stringify(saveError); }
+					CreateNotification(String(saveError), "error");
 				}
 				else {
 					CreateNotification("An error occurred while saving the droplet. Please try again later.", "error");
@@ -1816,7 +1823,12 @@ function PullSingleImage(dropletId)
 			}
 			else
 			{
-				CreateNotification(json["error"] || "Failed to download image", "error");
+				var errorMsg = json["error"] || json["message"] || "Failed to download image";
+				if (typeof errorMsg === 'object') {
+					errorMsg = JSON.stringify(errorMsg);
+				}
+				console.error("Image Pull Error:", json);
+				CreateNotification(String(errorMsg), "error");
 				// Reset button state on error
 				button.textContent = originalText;
 				button.disabled = false;

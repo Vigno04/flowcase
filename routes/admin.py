@@ -592,12 +592,19 @@ def api_admin_registry():
 
 	import os
 	registry_lock = os.environ.get('FLOWCASE_REGISTRY_LOCK')
+	import platform
+	arch = platform.machine().lower()
+	if arch == "x86_64":
+		arch = "amd64"
+	elif arch == "aarch64":
+		arch = "arm64"
 
 	response = {
 		"success": True,
 		"flowcase_version": __version__,
 		"registry": [],
-		"registry_locked": bool(registry_lock)
+		"registry_locked": bool(registry_lock),
+		"host_architecture": arch
 	}
 
 	if registry_lock:
