@@ -263,9 +263,13 @@ function AdminChangeTab(tab, element = null)
 
 			content.innerHTML = `
 				${json["registry_locked"] ? '' : 
-					`<div class="admin-registry-add">
+					`<div class="admin-registry-add" style="display: flex; gap: 10px; align-items: center;">
 						<input type="text" placeholder="URL" id="admin-registry-url">
 						<button class="button-1-full" onclick="AdminAddRegistry()">Add Registry</button>
+						<label style="display: flex; align-items: center; cursor: pointer; white-space: nowrap;">
+							<input type="checkbox" id="registry-compat-filter" checked onchange="window.RenderRegistryDroplets()" style="margin-right: 5px;">
+							Show only compatible ones
+						</label>
 					</div>
 					<hr>`
 				}
@@ -292,12 +296,8 @@ function AdminChangeTab(tab, element = null)
 				
 				<hr>
 
-				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+				<div style="margin-bottom: 10px;">
 					<h3 style="margin: 0;">Available Droplets</h3>
-					<label style="display: flex; align-items: center; cursor: pointer;">
-						<input type="checkbox" id="registry-compat-filter" checked onchange="RenderRegistryDroplets()" style="margin-right: 5px;">
-						Show only compatible ones
-					</label>
 				</div>
 
 				<table class="admin-modal-table">
@@ -1783,6 +1783,10 @@ function UpdateImageStatusDisplay(images)
 				`<span style="color: #28a745;">✓ Ready</span>` :
 				`<button class="button-1" onclick="PullSingleImage('${dropletId}')">Download</button>`;
 				
+			if (dropletId !== 'guac') {
+				actionButton += ` <i class="fas fa-trash" style="cursor:pointer; color:red; margin-left: 10px;" onclick="AdminDeleteDroplet('${dropletId}')" title="Delete Droplet"></i>`;
+			}
+				
 			tableHtml += `
 			<tr>
 				<td><strong>${imageInfo.droplet_name}</strong></td>
@@ -2042,3 +2046,41 @@ function renderPagination(elementId, currentPage, totalPages, callbackFunction) 
 	
 	pagination.innerHTML = paginationHtml;
 }
+
+window.RenderRegistryDroplets = function() {
+	var tbody = document.getElementById("registry-droplets-body");
+	if (!tbody) return;
+
+	var filterElement = document.getElementById("registry-compat-filter");
+	var filterCompat = filterElement ? filterElement.checked : false;
+	var hostArch = window.adminHostArch;
+	var droplets = window.adminRegistryDroplets || [];
+
+	var html = "";
+	droplets.forEach(droplet => {
+		if (filterCompat) {
+			if (droplet.architectures && Array.isArray(droplet.architectures) && !droplet.architectures.includes(hostArch)) {
+				return;
+			}
+		}
+
+		html += `
+			<tr>
+				<td><div><img src="${droplet.image_path ? droplet.image_path : '/static/img/droplet_default.jpg'}"><p>${droplet.display_name}</p></div></td>
+				<td>
+					<select style="width: 100%">
+						${droplet.container_docker_tags.map((tag, index) => `
+							<option ${index === droplet.tagdefaultindex ? 'selected' : ''} value="${tag}">${droplet.container_docker_image}:${tag}</option>
+						`).join('')}
+					</select>
+				</td>
+				<td>${droplet.registry_name}</td>
+				<td class="admin-modal-table-actions">
+					<i class="fas fa-edit" onclick="ShowEditDropletRegistry('${droplet.display_name}', '${droplet.description}', '${droplet.image_path}', '${droplet.container_docker_registry}', '${droplet.container_docker_image}', this.parentElement.parentElement.querySelector('select').value)"></i>
+				</td>
+			</tr>
+		`;
+	});
+
+	tbody.innerHTML = html;
+};
