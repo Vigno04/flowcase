@@ -13,7 +13,7 @@ worker_connections = 1000
 max_requests = 1000
 max_requests_jitter = 50
 
-timeout = 30
+timeout = 600
 keepalive = 2
 
 accesslog = "-"
