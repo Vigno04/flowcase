@@ -84,8 +84,6 @@ document.addEventListener('click', (e) => {
 			modalContent.classList.remove('sidebar-active');
 		}
 	}
-}
-
 });
 
 // Close sidebar when selecting a menu item on mobile
