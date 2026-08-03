@@ -29,28 +29,6 @@
 
 ## Quick Start
 
-### Option 1: Automated Installation (Recommended)
-
-**Windows (PowerShell):**
-```powershell
-.\install.ps1
-```
-
-**Linux/Mac:**
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-The installation script will:
-- ✅ Check prerequisites
-- ✅ Generate secure passwords
-- ✅ Create configuration files
-- ✅ Start all services
-- ✅ Display access information
-
-### Option 2: Manual Installation
-
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/flowcase/flowcase.git
@@ -60,21 +38,26 @@ The installation script will:
 2. **Create `.env` file:**
    ```bash
    cp .env.example .env
-   # Edit .env with your configuration
+   # Edit .env with your configuration if needed
    ```
 
 3. **Start Flowcase:**
+   For a production/server deployment (using pre-built image):
+   ```bash
+   docker compose -f docker-compose.server.yml up -d
+   ```
+   For local development (builds image from source):
    ```bash
    docker compose up -d
    ```
 
 4. **View logs for credentials:**
    ```bash
-   docker compose logs -f
+   docker compose logs -f flowcase
    ```
 
 5. **Access Flowcase:**
-   - Open `http://localhost` or `https://localhost`
+   - Open `http://localhost`
    - Use the default admin credentials shown in the logs
 
 ## Prerequisites
@@ -102,7 +85,7 @@ Before installing Flowcase, ensure you have:
 
 - **[SETUP.md](SETUP.md)** - Comprehensive setup guide with detailed instructions
   - Configuration options
-  - Authentik integration
+  - Authentik integration (Advanced)
   - Troubleshooting
   - Production deployment
 
@@ -116,73 +99,23 @@ Create a `.env` file with the following variables:
 
 | Variable | Description | Example | Required |
 |----------|-------------|---------|----------|
-| `DOMAIN` | Your domain name | `localhost` or `flowcase.example.com` | Yes |
-| `ADMIN_EMAIL` | Email for Let's Encrypt notifications | `admin@example.com` | Yes |
-| `CA_SERVER` | ACME certificate authority | Staging: `https://acme-staging-v02.api.letsencrypt.org/directory`<br>Production: `https://acme-v02.api.letsencrypt.org/directory` | Yes |
-| `PG_PASS` | PostgreSQL database password | Secure random string | Yes |
-| `AUTHENTIK_SECRET_KEY` | Authentik secret key | Secure random string (min 32 chars) | Yes |
+| `PORT` | Web port to expose | `80` | Yes |
+| `WEB_CONTAINER_NAME` | Name for the web container | `flowcase-web` | No |
+| `NGINX_CONTAINER_NAME` | Name for the nginx container | `flowcase-nginx` | No |
+| `FLOWCASE_NETWORK` | Name for the docker network | `flowcase_default_network` | No |
+| `FLASK_DEBUG` | Enable debug mode (0/1) | `0` | No |
 
-**Generate secure values:**
-```bash
-# Generate PostgreSQL password
-openssl rand -base64 24
 
-# Generate Authentik secret key
-openssl rand -base64 32
-```
+### Advanced Configuration
 
-### Local Development
-
-For local development, use these settings:
-
-```env
-DOMAIN=localhost
-ADMIN_EMAIL=admin@example.com
-CA_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory
-PG_PASS=<generate-secure-password>
-AUTHENTIK_SECRET_KEY=<generate-secure-key>
-```
-
-### Production
-
-For production deployment:
-
-```env
-DOMAIN=flowcase.yourdomain.com
-ADMIN_EMAIL=admin@yourdomain.com
-CA_SERVER=https://acme-v02.api.letsencrypt.org/directory
-PG_PASS=<strong-random-password-32-chars>
-AUTHENTIK_SECRET_KEY=<strong-random-key-50-chars>
-```
+If you'd like to integrate Authentik for SSO, or Traefik for reverse proxy and automated SSL, please refer to the advanced setup in [SETUP.md](SETUP.md).
 
 ## Accessing Flowcase
 
-### Default Access (Without Authentik)
-
-1. Navigate to `http://localhost` or `https://localhost`
+1. Navigate to `http://localhost` or your configured server IP
 2. Use the default credentials displayed in the terminal logs:
    - Username: `admin`
    - Password: `<random-generated-password>`
-
-### With Authentik (Optional - Requires Setup)
-
-Authentik integration is **disabled by default**. To enable it:
-
-1. **Configure Authentik** (see [SETUP.md](SETUP.md#authentik-integration-optional) for detailed steps):
-   - Access Authentik Admin: `https://authentik.localhost`
-   - Create a Proxy Provider
-   - Create an Application
-   - Configure the Outpost
-
-2. **Enable Authentik in docker-compose.yml**:
-   - Uncomment the middleware line (line 41): `- traefik.http.routers.flowcase.middlewares=authentik@file`
-   - Uncomment the flag (line 24): `--traefik-authentik`
-   - Restart: `docker compose restart web nginx traefik`
-
-3. **Access Flowcase**: `https://localhost` (will redirect to Authentik for login)
-
-> [!NOTE]
-> Authentik is disabled by default for easier initial setup. Follow the complete setup guide in [SETUP.md](SETUP.md#authentik-integration-optional) to enable it.
 
 ## Common Commands
 
@@ -194,7 +127,7 @@ docker compose up -d
 docker compose logs -f
 
 # View logs for specific service
-docker compose logs -f web
+docker compose logs -f flowcase
 
 # Stop Flowcase
 docker compose down
@@ -208,14 +141,10 @@ docker compose ps
 
 ## Architecture
 
-Flowcase consists of the following components:
+Flowcase consists of the following basic components:
 
-- **Flowcase Web**: Main application server (Flask)
+- **Flowcase**: Main application server (Flask) + SQLite Database
 - **Nginx**: Reverse proxy for Flowcase
-- **Traefik**: Reverse proxy and load balancer with automatic HTTPS
-- **Authentik**: Identity provider (optional, for authentication)
-- **PostgreSQL**: Database for Authentik
-- **Redis**: Cache for Authentik
 
 ## Troubleshooting
 
@@ -233,14 +162,6 @@ docker compose ps
 
 - Ensure containers are running: `docker compose ps`
 - Check nginx logs: `docker compose logs nginx`
-- Try `http://localhost` instead of `https://localhost`
-
-### Certificate Warnings
-
-For localhost development, certificate warnings are expected. For production:
-- Use a proper domain name
-- Update `DOMAIN` in `.env`
-- Ensure DNS points to your server
 
 ### Reset Everything
 
@@ -269,7 +190,6 @@ Please read our contributing guidelines and code of conduct before submitting.
 - **Security Issues**: Please report security vulnerabilities to the maintainers privately (see [SECURITY.md](SECURITY.md))
 - **Updates**: Keep your installation updated with the latest releases
 - **Credentials**: Always use strong, randomly generated passwords
-- **Production**: Follow the production deployment checklist in [SETUP.md](SETUP.md#production-deployment)
 
 ## License
 
@@ -280,15 +200,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Documentation**: Check [SETUP.md](SETUP.md) for detailed guides
 - **Issues**: Open an issue on [GitHub](https://github.com/flowcase/flowcase/issues)
 - **Discussions**: Join discussions on [GitHub Discussions](https://github.com/flowcase/flowcase/discussions)
-
-## Roadmap
-
-- [ ] Production-ready release
-- [ ] Upgrade/migration support
-- [ ] Additional authentication providers
-- [ ] Enhanced container management
-- [ ] Performance optimizations
-- [ ] Additional documentation
 
 ---
 

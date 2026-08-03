@@ -168,7 +168,8 @@ def logout():
 		log("INFO", f"Cleaned up {len(user_instances)} instance(s) on logout for user {current_user.username}")
 		try:
 			if utils.docker.docker_client:
-				nginx_container = utils.docker.docker_client.containers.get("flowcase-nginx")
+				nginx_name = os.environ.get("NGINX_CONTAINER_NAME", "flowcase-nginx")
+				nginx_container = utils.docker.docker_client.containers.get(nginx_name)
 				nginx_container.exec_run("nginx -s reload")
 		except Exception as e:
 			log("ERROR", f"Error reloading nginx after logout cleanup: {str(e)}")

@@ -457,13 +457,14 @@ def ensure_default_network():
 		return False
 	
 	try:
-		if not network_exists("flowcase_default_network"):
-			log("INFO", "flowcase_default_network not found, creating it")
-			docker_client.networks.create("flowcase_default_network", driver="bridge")
-			log("INFO", "Successfully created flowcase_default_network")
+		default_network_name = os.environ.get("FLOWCASE_NETWORK", "flowcase_default_network")
+		if not network_exists(default_network_name):
+			log("INFO", f"{default_network_name} not found, creating it")
+			docker_client.networks.create(default_network_name, driver="bridge")
+			log("INFO", f"Successfully created {default_network_name}")
 		return True
 	except Exception as e:
-		log("ERROR", f"Failed to create flowcase_default_network: {str(e)}")
+		log("ERROR", f"Failed to create default network: {str(e)}")
 		return False
 
 def list_available_networks():
@@ -481,7 +482,7 @@ def list_available_networks():
 def get_network_for_droplet(droplet):
 	"""Get the appropriate network for a droplet, with fallback to default"""
 	if not docker_client:
-		return "flowcase_default_network"
+		return os.environ.get("FLOWCASE_NETWORK", "flowcase_default_network")
 	
 	# If droplet has a specific network defined, use it
 	if droplet.container_network and droplet.container_network.strip():
@@ -496,4 +497,4 @@ def get_network_for_droplet(droplet):
 	# Ensure the default network exists before returning it
 	ensure_default_network()
 	
-	return "flowcase_default_network"
+	return os.environ.get("FLOWCASE_NETWORK", "flowcase_default_network")

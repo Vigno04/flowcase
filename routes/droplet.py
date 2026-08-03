@@ -387,9 +387,10 @@ def request_new_instance():
 			)
 		
 		# If using a non-default network, also connect to the default network for nginx connectivity
-		if network != "flowcase_default_network":
+		default_network_name = os.environ.get("FLOWCASE_NETWORK", "flowcase_default_network")
+		if network != default_network_name:
 			try:
-				default_network = utils.docker.docker_client.networks.get("flowcase_default_network")
+				default_network = utils.docker.docker_client.networks.get(default_network_name)
 				default_network.connect(container.id)
 				log("INFO", f"Connected container {name} to flowcase_default_network for nginx connectivity")
 			except Exception as e:
@@ -575,7 +576,8 @@ def write_nginx_config(instance: DropletInstance, nginx_config: str):
 		f.write(nginx_config)
 
 def reload_nginx():
-	nginx_container = utils.docker.docker_client.containers.get("flowcase-nginx")
+	nginx_name = os.environ.get("NGINX_CONTAINER_NAME", "flowcase-nginx")
+	nginx_container = utils.docker.docker_client.containers.get(nginx_name)
 	result = nginx_container.exec_run("nginx -s reload")
 	if result.exit_code != 0:
 		log("WARNING", f"Failed to reload Nginx: {result.output.decode()}")
@@ -954,9 +956,10 @@ def resume_instance(instance_id: str):
 			mounts=[volume_mount] if volume_mount else None,
 		)
 		
-		if network != "flowcase_default_network":
+		default_network_name = os.environ.get("FLOWCASE_NETWORK", "flowcase_default_network")
+		if network != default_network_name:
 			try:
-				default_network = utils.docker.docker_client.networks.get("flowcase_default_network")
+				default_network = utils.docker.docker_client.networks.get(default_network_name)
 				default_network.connect(container.id)
 			except Exception as e:
 				pass

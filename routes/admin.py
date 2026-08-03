@@ -44,7 +44,8 @@ def api_admin_system():
 	nginx_version = None
 	try:
 		#get docker container
-		nginx_container = utils.docker.docker_client.containers.get("flowcase-nginx")
+		nginx_name = os.environ.get("NGINX_CONTAINER_NAME", "flowcase-nginx")
+		nginx_container = utils.docker.docker_client.containers.get(nginx_name)
 		result = nginx_container.exec_run("nginx -v")
 		nginx_version = result.output.decode('utf-8').split("\n")[0].replace("nginx version: nginx/", "")
 	except:
@@ -931,7 +932,8 @@ def api_admin_networks():
 		filtered_networks = []
 		for network in all_networks:
 			network_name = network["name"]
-			if (network_name == "flowcase_default_network" or
+			default_network_name = os.environ.get("FLOWCASE_NETWORK", "flowcase_default_network")
+			if (network_name == default_network_name or
 				network_name.startswith("lan_") or
 				network_name.startswith("vlan_")):
 				filtered_networks.append(network)
