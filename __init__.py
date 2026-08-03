@@ -31,11 +31,13 @@ def create_app(config=None):
 	from routes.admin import admin_bp
 	from routes.droplet import droplet_bp
 	from routes.profile import profile_bp
+	from routes.sso import sso_bp
 	
 	app.register_blueprint(auth_bp)
 	app.register_blueprint(admin_bp, url_prefix='/api/admin')
 	app.register_blueprint(droplet_bp)
 	app.register_blueprint(profile_bp, url_prefix='/api')
+	app.register_blueprint(sso_bp)
 	
 	@app.errorhandler(404)
 	def page_not_found(e):

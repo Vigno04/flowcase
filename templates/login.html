@@ -16,28 +16,40 @@
         <div class="form-container">
             <div class="inner-content">
                 <h2>Login</h2>
-                <form class="form" action="/login" method="POST">
-                    <div class="input-group">
-                        <label for="username">Username</label>
-                        <input type="text" name="username" id="username" placeholder="">
+                {% if sso_config and sso_config.enabled and sso_config.disable_classic_login %}
+                    <div style="text-align: center; margin-top: 20px;">
+                        <a href="/sso/login" class="button-1-full" style="display: block; text-decoration: none; text-align: center;">Sign in with {{ sso_config.provider_name or 'SSO' }}</a>
                     </div>
-                    <div class="input-group">
-                        <label for="password">Password</label>
-                        <input type="password" name="password" id="password" placeholder="">
-                        <div class="forgot">
+                {% else %}
+                    <form class="form" action="/login" method="POST">
+                        <div class="input-group">
+                            <label for="username">Username</label>
+                            <input type="text" name="username" id="username" placeholder="">
                         </div>
-                    </div>
-                    <div class="remember-me">
-                        <input type="checkbox" name="remember" id="remember">
-                        <label for="remember">Remember me</label>
-                    </div>
-                    <button class="button-1-full">Sign in</button>
-                    {% if error %}
-                        <div class="error-message">
-                            {{ error }}
+                        <div class="input-group">
+                            <label for="password">Password</label>
+                            <input type="password" name="password" id="password" placeholder="">
+                            <div class="forgot">
+                            </div>
                         </div>
-                    {% endif %}
-                </form>
+                        <div class="remember-me">
+                            <input type="checkbox" name="remember" id="remember">
+                            <label for="remember">Remember me</label>
+                        </div>
+                        <button class="button-1-full">Sign in</button>
+                        
+                        {% if sso_config and sso_config.enabled %}
+                            <div style="text-align: center; margin: 16px 0; color: var(--text-color-gray); font-size: 14px;">or</div>
+                            <a href="/sso/login" class="button-1-full" style="display: block; text-decoration: none; text-align: center; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">Sign in with {{ sso_config.provider_name or 'SSO' }}</a>
+                        {% endif %}
+
+                        {% if error %}
+                            <div class="error-message">
+                                {{ error }}
+                            </div>
+                        {% endif %}
+                    </form>
+                {% endif %}
             </div>
         </div>
     </body>

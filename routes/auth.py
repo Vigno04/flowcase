@@ -109,7 +109,11 @@ def index():
 	
 	if current_user.is_authenticated:
 		return redirect(url_for('auth.dashboard'))
-	return render_template('login.html', error=session.pop('error', None))
+		
+	from models.sso import SsoConfig
+	sso_config = SsoConfig.query.first()
+		
+	return render_template('login.html', error=session.pop('error', None), sso_config=sso_config)
 
 @auth_bp.route('/dashboard')
 @login_required
