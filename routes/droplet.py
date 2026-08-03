@@ -143,11 +143,48 @@ def get_instances():
 		except:
 			# Container might not exist or other error
 			pass
+
+		snapshot_size = 0
+		snapshot_created = None
+		base_image_size = 0
+
+		if utils.docker.is_docker_available():
+			try:
+				local_images = utils.docker.docker_client.images.list()
+				
+				if instance.snapshot_image_name:
+					snap_image_name = instance.snapshot_image_name
+					log("INFO", f"Checking snapshot size for {snap_image_name}")
+					for img in local_images:
+						if any(snap_image_name in tag for tag in img.tags):
+							snapshot_size = img.attrs.get('Size', 0)
+							snapshot_created = img.attrs.get('Created', None)
+							log("INFO", f"Found snapshot size: {snapshot_size}")
+							break
+					if snapshot_size == 0:
+						log("INFO", f"Failed to find snapshot size for {snap_image_name} in {len(local_images)} local images")
+				if droplet.container_docker_image:
+					image_name = droplet.container_docker_image
+					if droplet.container_docker_registry and "docker.io" not in droplet.container_docker_registry:
+						image_name = droplet.container_docker_registry.rstrip("/") + "/" + image_name
+					# Use tag-based list match (same approach as the rest of the codebase)
+					for img in local_images:
+						if any(image_name == tag for tag in img.tags):
+							base_image_size = img.attrs.get('Size', 0)
+							break
+			except Exception:
+				pass
 			
 		response["instances"].append({
 			"id": instance.id,
 			"created_at": instance.created_at,
 			"updated_at": instance.updated_at,
+			"status": instance.status,
+			"custom_name": instance.custom_name,
+			"snapshot_image_name": instance.snapshot_image_name,
+			"snapshot_size": snapshot_size,
+			"snapshot_created": snapshot_created,
+			"base_image_size": base_image_size,
 			"ip": ip,
 			"droplet": {
 				"id": droplet.id,
@@ -264,7 +301,7 @@ def request_new_instance():
 		"""
 
 	# Create a new instance
-	instance = DropletInstance(droplet_id=droplet_id, user_id=current_user.id)
+	instance = DropletInstance(droplet_id=droplet_id, user_id=current_user.id, status="running")
 	db.session.add(instance)
 	db.session.commit()
  
@@ -296,8 +333,8 @@ def request_new_instance():
 		volume_name = re.sub(r'[^a-zA-Z0-9._-]', '_', volume_name)
 		volume_name = f"flowcase_profile_{volume_name}"
 		
-		# Mount to user's home directory in container
-		container_path = "/home/flowcase-user"
+		# Mount to user's Shared directory in container to keep OS separate from shared files
+		container_path = "/home/flowcase-user/Shared"
 		
 		try:
 			# Check if volume exists, create if not
@@ -646,7 +683,69 @@ def droplet(instance_id: str):
 		using_guac = True
 		guac_token = generate_guac_token(droplet, current_user)
 
-	return render_template('droplet.html', instance_id=instance_id, droplet=droplet, guacamole=using_guac, guac_token=guac_token)
+	return render_template('droplet.html', instance_id=instance_id, droplet=droplet, guacamole=using_guac, guac_token=guac_token, instance_status=instance.status, has_snapshot=bool(instance.snapshot_image_name))
+
+@droplet_bp.route('/api/instance/<string:instance_id>/exit', methods=['GET'])
+@login_required
+def exit_instance(instance_id: str):
+	instance = DropletInstance.query.filter_by(id=instance_id).first()
+	if not instance:
+		return jsonify({"success": False, "error": "Instance not found"}), 404
+
+	# Check authorization
+	if instance.user_id != current_user.id:
+		is_admin = False
+		for group_id in current_user.get_groups():
+			group = Group.query.filter_by(id=group_id).first()
+			if group and group.display_name == "Admin":
+				is_admin = True
+				break
+		if not is_admin:
+			return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+	try:
+		if utils.docker.docker_client:
+			container = utils.docker.docker_client.containers.get(f"flowcase_generated_{instance.id}")
+			container.remove(force=True)
+	except Exception as e:
+		log("ERROR", f"Error removing container during exit: {str(e)}")
+		pass
+
+	# Delete nginx config
+	if os.path.exists(f"/flowcase/nginx/containers.d/{instance.id}.conf"):
+		os.remove(f"/flowcase/nginx/containers.d/{instance.id}.conf")
+		reload_nginx()
+
+	if instance.snapshot_image_name:
+		# It was a resumed instance. Revert to saved state.
+		instance.status = "saved"
+		db.session.commit()
+		return jsonify({"success": True, "message": "Instance exited, reverting to last save"})
+	else:
+		# It was a fresh unsaved instance. Destroy completely.
+		db.session.delete(instance)
+		db.session.commit()
+		return jsonify({"success": True, "message": "Instance destroyed (no save existed)"})
+
+@droplet_bp.route('/api/instance/<string:instance_id>/rename', methods=['POST'])
+@login_required
+def rename_instance(instance_id: str):
+	instance = DropletInstance.query.filter_by(id=instance_id).first()
+	if not instance:
+		return jsonify({"success": False, "error": "Instance not found"}), 404
+
+	if instance.user_id != current_user.id:
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+	data = request.json
+	new_name = data.get("custom_name", "").strip()
+	
+	if not new_name:
+		return jsonify({"success": False, "error": "Name cannot be empty"}), 400
+
+	instance.custom_name = new_name
+	db.session.commit()
+	return jsonify({"success": True, "message": "Instance renamed successfully"})
 
 @droplet_bp.route('/api/instance/<string:instance_id>/destroy', methods=['GET'])
 @login_required
@@ -679,12 +778,236 @@ def stop_instance(instance_id: str):
 	except Exception as e:
 		log("ERROR", f"Error removing container: {str(e)}")
 		pass
+
+	# Also delete the snapshot image if it exists
+	if instance.snapshot_image_name and utils.docker.docker_client:
+		try:
+			utils.docker.docker_client.images.remove(instance.snapshot_image_name, force=True)
+		except Exception as e:
+			log("ERROR", f"Error removing snapshot image {instance.snapshot_image_name}: {str(e)}")
+			pass
   
 	# Delete nginx config
 	if os.path.exists(f"/flowcase/nginx/containers.d/{instance.id}.conf"):
 		os.remove(f"/flowcase/nginx/containers.d/{instance.id}.conf")
+		reload_nginx()
 	
 	db.session.delete(instance)
 	db.session.commit()
  
 	return jsonify({"success": True})
+
+@droplet_bp.route('/api/instance/<string:instance_id>/save', methods=['POST'])
+@login_required
+def save_instance(instance_id: str):
+	instance = DropletInstance.query.filter_by(id=instance_id).first()
+	if not instance:
+		return jsonify({"success": False, "error": "Instance not found"}), 404
+	
+	if instance.user_id != current_user.id:
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+	custom_name = request.json.get("custom_name")
+	
+	if not utils.docker.docker_client:
+		return jsonify({"success": False, "error": "Docker service unavailable"}), 500
+
+	container_name = f"flowcase_generated_{instance.id}"
+	try:
+		container = utils.docker.docker_client.containers.get(container_name)
+		
+		# Commit the container to a new image
+		snapshot_name = f"flowcase_save_{instance.id}"
+		container.commit(repository=snapshot_name)
+		
+		# Remove the running container
+		container.remove(force=True)
+		
+		# Update instance
+		instance.status = "saved"
+		instance.snapshot_image_name = snapshot_name
+		if custom_name:
+			instance.custom_name = custom_name
+		
+		# Delete nginx config as the container is gone
+		if os.path.exists(f"/flowcase/nginx/containers.d/{instance.id}.conf"):
+			os.remove(f"/flowcase/nginx/containers.d/{instance.id}.conf")
+			reload_nginx()
+
+		db.session.commit()
+		return jsonify({"success": True})
+	except Exception as e:
+		log("ERROR", f"Error saving instance {instance_id}: {str(e)}")
+		return jsonify({"success": False, "error": f"Failed to save instance: {str(e)}"}), 500
+
+@droplet_bp.route('/api/instance/<string:instance_id>/save_as', methods=['POST'])
+@login_required
+def save_as_instance(instance_id: str):
+	instance = DropletInstance.query.filter_by(id=instance_id).first()
+	if not instance:
+		return jsonify({"success": False, "error": "Instance not found"}), 404
+	
+	if instance.user_id != current_user.id:
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+	custom_name = request.json.get("custom_name")
+	if not custom_name:
+		return jsonify({"success": False, "error": "Custom name required"}), 400
+		
+	if not utils.docker.docker_client:
+		return jsonify({"success": False, "error": "Docker service unavailable"}), 500
+
+	try:
+		# Generate a new ID manually so we can use it before committing
+		import uuid
+		new_instance_id = str(uuid.uuid4())
+		new_instance = DropletInstance(id=new_instance_id, droplet_id=instance.droplet_id, user_id=current_user.id, status="saved", custom_name=custom_name)
+
+		container_name = f"flowcase_generated_{instance.id}"
+		container = utils.docker.docker_client.containers.get(container_name)
+		
+		# Commit the running container to the NEW instance's snapshot image
+		snapshot_name = f"flowcase_save_{new_instance_id}"
+		container.commit(repository=snapshot_name)
+		
+		new_instance.snapshot_image_name = snapshot_name
+		db.session.add(new_instance)
+
+		# Remove the running container now that it's been committed
+		container.remove(force=True)
+
+		# Remove nginx config for this instance since container is gone
+		if os.path.exists(f"/flowcase/nginx/containers.d/{instance.id}.conf"):
+			os.remove(f"/flowcase/nginx/containers.d/{instance.id}.conf")
+			reload_nginx()
+
+		# Delete the original running instance record (save_as creates a new saved copy)
+		db.session.delete(instance)
+		db.session.commit()
+
+		return jsonify({"success": True})
+	except Exception as e:
+		log("ERROR", f"Error in save_as for instance {instance_id}: {str(e)}")
+		return jsonify({"success": False, "error": f"Failed to save instance as new: {str(e)}"}), 500
+
+@droplet_bp.route('/api/instance/<string:instance_id>/resume', methods=['POST'])
+@login_required
+def resume_instance(instance_id: str):
+	instance = DropletInstance.query.filter_by(id=instance_id).first()
+	if not instance:
+		return jsonify({"success": False, "error": "Instance not found"}), 404
+	
+	if instance.user_id != current_user.id:
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+		
+	if instance.status != "saved":
+		return jsonify({"success": False, "error": "Instance is already running"}), 400
+
+	if not utils.docker.docker_client:
+		return jsonify({"success": False, "error": "Docker service unavailable"}), 500
+
+	droplet = Droplet.query.filter_by(id=instance.droplet_id).first()
+	
+	name = f"flowcase_generated_{instance.id}"
+	
+	# We use the snapshot image if it exists, otherwise fallback (should not happen for a valid save)
+	image_name = instance.snapshot_image_name if instance.snapshot_image_name else droplet.container_docker_image
+	
+	# The rest of the container launch logic is similar to request_new_instance but without volume mounts
+	resolution = "1280x720" # We might want to save this, but for now default
+
+	# We explicitly do NOT mount the volume for resumed instances because they might have been saved without it, or it was mounted to /Shared.
+	# Let's mount it to /Shared just like request_new_instance.
+	volume_mount = None
+	if droplet.container_persistent_profile_path and droplet.container_persistent_profile_path != "":
+		volume_name_template = droplet.container_persistent_profile_path
+		volume_name = volume_name_template.replace("{user_id}", str(current_user.id))
+		volume_name = volume_name.replace("{user_name}", current_user.username)
+		volume_name = volume_name.replace("{droplet_id}", str(droplet.id))
+		volume_name = volume_name.replace("{droplet_name}", droplet.display_name)
+		volume_name = re.sub(r'[^a-zA-Z0-9._-]', '_', volume_name)
+		volume_name = f"flowcase_profile_{volume_name}"
+		
+		try:
+			utils.docker.docker_client.volumes.get(volume_name)
+		except docker.errors.NotFound:
+			utils.docker.docker_client.volumes.create(name=volume_name)
+			
+		volume_mount = docker.types.Mount(
+			target="/home/flowcase-user/Shared",
+			source=volume_name,
+			type="volume"
+		)
+
+	try:
+		network = utils.docker.get_network_for_droplet(droplet)
+		
+		# Start container from snapshot
+		container = utils.docker.docker_client.containers.run(
+			image=image_name,
+			name=name,
+			environment={"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution},
+			detach=True,
+			network=network,
+			mem_limit=f"{droplet.container_memory}000000",
+			cpu_shares=int(droplet.container_cores * 1024),
+			mounts=[volume_mount] if volume_mount else None,
+		)
+		
+		if network != "flowcase_default_network":
+			try:
+				default_network = utils.docker.docker_client.networks.get("flowcase_default_network")
+				default_network.connect(container.id)
+			except Exception as e:
+				pass
+
+		# Wait for it to run
+		max_wait_time = 30
+		waited_time = 0
+		while waited_time < max_wait_time:
+			time.sleep(1)
+			waited_time += 1
+			container.reload()
+			if container.status == 'running':
+				break
+			elif container.status in ['exited', 'dead']:
+				container.remove(force=True)
+				return jsonify({"success": False, "error": "Container failed to resume"}), 500
+				
+		if waited_time >= max_wait_time:
+			container.remove(force=True)
+			return jsonify({"success": False, "error": "Container resume timed out"}), 500
+
+		# Recreate nginx configuration
+		container.reload()
+		networks = container.attrs['NetworkSettings']['Networks']
+		ip = None
+		if 'flowcase_default_network' in networks and networks['flowcase_default_network']['IPAddress']:
+			ip = networks['flowcase_default_network']['IPAddress']
+		elif network in networks and networks[network]['IPAddress']:
+			ip = networks[network]['IPAddress']
+		else:
+			for network_name in ['default_network', 'bridge']:
+				if network_name in networks and networks[network_name]['IPAddress']:
+					ip = networks[network_name]['IPAddress']
+					break
+		
+		if not ip:
+			container.remove(force=True)
+			return jsonify({"success": False, "error": "Could not determine container IP address"}), 500
+
+		nginx_config = generate_nginx_config(instance, droplet, ip, current_user)
+		write_nginx_config(instance, nginx_config)
+		reload_nginx()
+		
+		instance.status = "running"
+		db.session.commit()
+		return jsonify({"success": True})
+	except Exception as e:
+		log("ERROR", f"Error resuming instance {instance_id}: {str(e)}")
+		try:
+			if 'container' in locals():
+				container.remove(force=True)
+		except:
+			pass
+		return jsonify({"success": False, "error": f"Failed to resume container: {str(e)}"}), 500

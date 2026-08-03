@@ -25,4 +25,7 @@ class DropletInstance(db.Model):
 	droplet_id = db.Column(db.String(36), db.ForeignKey('droplet.id'), nullable=False)
 	user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
 	created_at = db.Column(db.DateTime, server_default=func.now())
-	updated_at = db.Column(db.DateTime, server_default=func.now(), onupdate=func.now()) 
+	updated_at = db.Column(db.DateTime, server_default=func.now(), onupdate=func.now())
+	status = db.Column(db.String(20), default="running")
+	custom_name = db.Column(db.String(255), nullable=True)
+	snapshot_image_name = db.Column(db.String(255), nullable=True) 

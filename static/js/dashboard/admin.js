@@ -115,15 +115,22 @@ function AdminChangeTab(tab, element = null)
 	var header = document.getElementById('admin-modal-header');
 	var subtext = document.getElementById('admin-modal-subtext');
 
-	if (element != null) {
-		//Remove active class from all buttons
-		var buttons = document.querySelectorAll('.admin-modal-sidebar-button');
-		buttons.forEach(button => {
-			button.classList.remove('active');
-		});
+	//Remove active class from all buttons
+	var buttons = document.querySelectorAll('.admin-modal-sidebar-button');
+	buttons.forEach(button => {
+		button.classList.remove('active');
+	});
 
+	if (element != null) {
 		//Add active class to the clicked button
 		element.classList.add('active');
+	} else {
+		//Find the button that corresponds to the tab and add active class
+		buttons.forEach(button => {
+			if (button.getAttribute('onclick') && button.getAttribute('onclick').includes("'" + tab + "'")) {
+				button.classList.add('active');
+			}
+		});
 	}
 
 	var content = document.querySelector('.admin-modal-main-content');
@@ -252,12 +259,17 @@ function AdminChangeTab(tab, element = null)
 
 			//set droplet registry name
 			droplets.forEach(droplet => {
-				droplet.registry_name = json["registry"].find(registry => registry.droplets.find(d => d.id == droplet.id)).info.name;
+				try {
+					droplet.registry_name = json["registry"].find(registry => registry.droplets.find(d => d.id == droplet.id)).info.name;
 
-				//if tag of the flowcase version is found, set the intial tag to that, otherwise set to the first tag
-				droplet.tagdefaultindex = droplet.container_docker_tags.findIndex(tag => tag == flowcase_version);
-				if (droplet.tagdefaultindex == -1) {
-					droplet.tagdefaultindex = 0;
+					//if tag of the flowcase version is found, set the intial tag to that, otherwise set to the first tag
+					droplet.tagdefaultindex = droplet.container_docker_tags.findIndex(tag => tag == flowcase_version);
+					if (droplet.tagdefaultindex == -1) {
+						droplet.tagdefaultindex = 0;
+					}
+				} catch (e) {
+					droplet.has_json_error = true;
+					droplet.json_error_message = "JSON schema error";
 				}
 			});
 
@@ -506,8 +518,241 @@ function AdminChangeTab(tab, element = null)
 			`;
 			
 			FetchImageStatus();
-			break;
+		break;
+	case 'sso':
+		header.innerText = "Single Sign-On (SSO)";
+		subtext.innerText = "Configure OIDC/OAuth2 Single Sign-On so users can authenticate via an external identity provider.";
+
+		FetchAdminSsoConfig(function(json) {
+			var sso = json["sso"];
+			content.innerHTML = `
+				<div style="max-width: 538px; width: 100%;">
+
+					<!-- Master enable toggle -->
+					<div class="admin-modal-card" style="flex-direction: row; align-items: center; justify-content: space-between; padding: 16px 0;">
+						<div style="flex: 1; padding-right: 24px;">
+							<p style="margin:0; font-weight:600; font-size:15px;">Enable SSO</p>
+							<p class="admin-modal-help-text" style="margin-top: 6px;">
+								When enabled, a "Sign in with SSO" button appears on the login page.
+								Users can also link their account to SSO from their profile.
+							</p>
+						</div>
+						<label class="sso-toggle">
+							<input type="checkbox" id="sso-enabled" ${sso.enabled ? 'checked' : ''}>
+							<span class="sso-toggle-slider"></span>
+						</label>
+					</div>
+
+					<!-- Disable classic login toggle -->
+					<div class="admin-modal-card" style="flex-direction: row; align-items: center; justify-content: space-between; padding: 16px 0; border: 1px solid rgba(239,68,68,0.25); border-radius: 10px; background: rgba(239,68,68,0.05);">
+						<div style="flex: 1; padding-left: 20px; padding-right: 24px;">
+							<p style="margin:0; font-weight:600; font-size:15px;">Disable Classic Login</p>
+							<p class="admin-modal-help-text" style="margin-top: 6px;">
+								<strong style="color:#ef4444;">⚠ Danger:</strong> Username/password login will be completely disabled.
+								Make sure SSO is fully configured before enabling this, or you will be locked out.
+							</p>
+						</div>
+						<label class="sso-toggle" style="margin-right: 20px;">
+							<input type="checkbox" id="sso-disable-classic" ${sso.disable_classic_login ? 'checked' : ''}>
+							<span class="sso-toggle-slider" style="${sso.disable_classic_login ? 'background:#ef4444;' : ''}"></span>
+						</label>
+					</div>
+
+					<hr style="margin:16px 0; border: none; border-top: 1px solid rgba(255,255,255,0.08);">
+
+					<!-- OIDC provider config -->
+					<div style="margin-bottom: 24px;">
+						<h3 style="margin:0 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:1px; color:var(--text-color-gray);">OIDC / OAuth2 Provider</h3>
+						<p class="admin-modal-help-text" style="margin:0;">
+							Connect to any OpenID Connect provider — Authentik, Keycloak, Okta, Google, etc.
+						</p>
+					</div>
+
+					<div class="admin-modal-card" style="padding: 12px 0;">
+						<p>Provider Name</p>
+						<p class="admin-modal-help-text">
+							A friendly label shown to users on the login button (e.g. <code>Authentik</code>).
+						</p>
+						<input type="text" id="sso-provider-name" placeholder="My Identity Provider" value="${sso.provider_name || ''}">
+					</div>
+
+					<div class="admin-modal-card" style="padding: 12px 0;">
+						<p>Issuer URL</p>
+						<p class="admin-modal-help-text">
+							The base URL of your OIDC provider. Flowcase appends <code>/.well-known/openid-configuration</code>.
+						</p>
+						<input type="text" id="sso-issuer-url" placeholder="https://auth.example.com/application/o/app-slug" value="${sso.issuer_url || ''}">
+					</div>
+
+					<div class="admin-modal-card" style="padding: 12px 0;">
+						<p>Client ID</p>
+						<p class="admin-modal-help-text">
+							The OAuth2 Client ID registered for Flowcase in your identity provider.
+						</p>
+						<input type="text" id="sso-client-id" placeholder="flowcase-client-id" value="${sso.client_id || ''}">
+					</div>
+
+					<div class="admin-modal-card" style="padding: 12px 0;">
+						<p>Client Secret</p>
+						<p class="admin-modal-help-text">
+							The OAuth2 Client Secret. Leave showing <code>****</code> to keep the existing saved value.
+						</p>
+						<input type="password" id="sso-client-secret" placeholder="••••••••" value="${sso.client_secret || ''}">
+					</div>
+
+					<div class="admin-modal-card" style="padding: 12px 0;">
+						<p>App Domain</p>
+						<p class="admin-modal-help-text">
+							The base URL of this Flowcase instance. Used to generate the redirect URI below.
+						</p>
+						<input type="text" id="sso-app-domain" placeholder="https://flowcase.example.com" value="${(sso.redirect_uri || '').replace('/sso/callback', '')}" oninput="UpdateSsoRedirectUri()">
+						
+						<div style="margin-top:12px; padding:12px 16px; background:rgba(0,0,0,0.25); border-radius:8px; border:1px solid rgba(255,255,255,0.05); width: 512px; box-sizing: border-box;">
+							<p style="margin:0 0 6px; font-size:12px; font-weight:600; color:var(--text-color-gray);">Redirect URI (Copy this to Authentik)</p>
+							<code id="sso-redirect-uri-display" style="font-size:13px; color:#4f8ef7; word-break:break-all;"></code>
+						</div>
+					</div>
+
+					<hr style="margin:24px 0 16px; border: none; border-top: 1px solid rgba(255,255,255,0.08);">
+
+					<!-- Collapsible manual override section -->
+					<div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; padding: 16px 20px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; width: 512px; box-sizing: border-box; transition: all 0.2s ease;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'" onclick="var el = document.getElementById('sso-manual-override'); var icon = document.getElementById('sso-override-icon'); if (el.style.display === 'none') { el.style.display = 'block'; icon.style.transform = 'rotate(180deg)'; } else { el.style.display = 'none'; icon.style.transform = 'rotate(0deg)'; }">
+						<div>
+							<h3 style="margin:0 0 4px; font-size:14px; text-transform:uppercase; letter-spacing:1px; color:var(--text-color);">Manual Endpoints & Scopes</h3>
+							<p style="margin:0; font-size:12px; color:var(--text-color-gray);">Optional settings to manually override auto-discovery</p>
+						</div>
+						<i id="sso-override-icon" class="fas fa-chevron-down" style="color:var(--text-color-gray); transition: transform 0.3s ease;"></i>
+					</div>
+
+					<div id="sso-manual-override" style="display:none; padding-top: 8px;">
+						<div class="admin-modal-card" style="padding: 12px 0;">
+							<p>Scopes</p>
+							<p class="admin-modal-help-text">
+								Space-separated OAuth2 scopes. <code>openid</code> is required.
+							</p>
+							<input type="text" id="sso-scopes" placeholder="openid profile email" value="${sso.scopes || 'openid profile email'}">
+						</div>
+
+						<div class="admin-modal-card" style="padding: 12px 0;">
+							<p>Authorization Endpoint</p>
+							<p class="admin-modal-help-text">
+								Where users are redirected to authenticate. Found as <code>authorization_endpoint</code>.
+							</p>
+							<input type="text" id="sso-auth-endpoint" placeholder="https://auth.example.com/oauth/authorize" value="${sso.authorization_endpoint || ''}">
+						</div>
+
+						<div class="admin-modal-card" style="padding: 12px 0;">
+							<p>Token Endpoint</p>
+							<p class="admin-modal-help-text">
+								Used to exchange the authorization code for an access token. Found as <code>token_endpoint</code>.
+							</p>
+							<input type="text" id="sso-token-endpoint" placeholder="https://auth.example.com/oauth/token" value="${sso.token_endpoint || ''}">
+						</div>
+
+						<div class="admin-modal-card" style="padding: 12px 0;">
+							<p>Userinfo Endpoint</p>
+							<p class="admin-modal-help-text">
+								Called to retrieve user attributes. Found as <code>userinfo_endpoint</code>.
+							</p>
+							<input type="text" id="sso-userinfo-endpoint" placeholder="https://auth.example.com/oauth/userinfo" value="${sso.userinfo_endpoint || ''}">
+						</div>
+					</div>
+
+					<div style="margin-top:32px; display:flex;">
+						<button class="button-1-full" onclick="SaveSsoConfig()">Save Configuration</button>
+					</div>
+				</div>
+
+				<style>
+					.sso-toggle { position:relative; display:inline-block; width:46px; height:26px; flex-shrink:0; }
+					.sso-toggle input { opacity:0; width:0; height:0; }
+					.sso-toggle-slider {
+						position:absolute; cursor:pointer; inset:0;
+						background:rgba(255,255,255,0.1); border-radius:26px;
+						transition: background 0.3s;
+					}
+					.sso-toggle-slider:before {
+						content:''; position:absolute; height:18px; width:18px;
+						left:4px; bottom:4px; background:white; border-radius:50%;
+						transition: transform 0.3s;
+					}
+					.sso-toggle input:checked + .sso-toggle-slider { background: #4f8ef7; }
+					#sso-disable-classic:checked + .sso-toggle-slider { background: #e05454 !important; }
+					.sso-toggle input:checked + .sso-toggle-slider:before { transform: translateX(20px); }
+				</style>
+				<script>
+					// Initialize the display logic for Redirect URI
+					function UpdateSsoRedirectUri() {
+						var domainInput = document.getElementById('sso-app-domain');
+						var displayEl = document.getElementById('sso-redirect-uri-display');
+						if (domainInput && displayEl) {
+							var domain = domainInput.value.trim();
+							if (!domain) {
+								// Prefill with current origin if empty
+								domain = window.location.origin;
+								domainInput.value = domain;
+							}
+							domain = domain.replace(/\\/+$/, ''); // remove trailing slash
+							displayEl.innerText = domain + '/sso/callback';
+						}
+					}
+					// Run once immediately
+					setTimeout(UpdateSsoRedirectUri, 50);
+				</script>
+			`;
+		});
+		break;
 	}
+}
+
+function FetchAdminSsoConfig(callback) {
+	var url = "/api/admin/sso";
+	var xhr = new XMLHttpRequest();
+	xhr.open("GET", url, true);
+	xhr.setRequestHeader("Content-Type", "application/json");
+	xhr.onreadystatechange = function () {
+		if (xhr.readyState === 4) {
+			var json = JSON.parse(xhr.responseText);
+			if (json["success"] == true) {
+				callback(json);
+			} else {
+				CreateNotification(json["error"] || "Failed to load SSO configuration.", "error");
+			}
+		}
+	};
+	xhr.send();
+}
+
+function SaveSsoConfig() {
+	var data = {
+		enabled: document.getElementById('sso-enabled').checked,
+		disable_classic_login: document.getElementById('sso-disable-classic').checked,
+		provider_name: document.getElementById('sso-provider-name').value,
+		client_id: document.getElementById('sso-client-id').value,
+		client_secret: document.getElementById('sso-client-secret').value,
+		issuer_url: document.getElementById('sso-issuer-url').value,
+		authorization_endpoint: document.getElementById('sso-auth-endpoint').value,
+		token_endpoint: document.getElementById('sso-token-endpoint').value,
+		userinfo_endpoint: document.getElementById('sso-userinfo-endpoint').value,
+		redirect_uri: document.getElementById('sso-redirect-uri-display') ? document.getElementById('sso-redirect-uri-display').innerText : "",
+		scopes: document.getElementById('sso-scopes').value,
+	};
+
+	var url = "/api/admin/sso";
+	var xhr = new XMLHttpRequest();
+	xhr.open("POST", url, true);
+	xhr.setRequestHeader("Content-Type", "application/json");
+	xhr.onreadystatechange = function () {
+		if (xhr.readyState === 4) {
+			var json = JSON.parse(xhr.responseText);
+			if (json["success"] == true) {
+				CreateNotification("SSO configuration saved successfully!", "success");
+			} else {
+				CreateNotification(json["error"] || "Failed to save SSO configuration.", "error");
+			}
+		}
+	};
+	xhr.send(JSON.stringify(data));
 }
 
 function FetchAdminSystemInfo(callback)
@@ -1757,8 +2002,11 @@ function FetchImageStatus()
 	console.log("Fetching image status...");
 }
 
+let currentImagesStatus = {};
+
 function UpdateImageStatusDisplay(images)
 {
+	currentImagesStatus = images;
 	var imagesContent = document.getElementById('images-content');
 	var tableHtml = `
 	<table class="admin-modal-table">
@@ -1772,33 +2020,116 @@ function UpdateImageStatusDisplay(images)
 	if (Object.keys(images).length === 0) {
 		tableHtml += `
 		<tr>
-			<td colspan="4" style="text-align: center;">No droplets with Docker images found</td>
+			<td colspan="4" style="text-align: center; padding: 20px; color: var(--text-color-gray);">No droplets with Docker images found</td>
 		</tr>`;
 	} else {
+		let isDownloading = false;
 		Object.keys(images).forEach(dropletId => {
 			var imageInfo = images[dropletId];
-			var statusClass = imageInfo.exists ? 'log-info' : 'log-error';
-			var statusText = imageInfo.exists ? 'Downloaded' : 'Missing';
-			var actionButton = imageInfo.exists ? 
-				`<span style="color: #28a745;">✓ Ready</span>` :
-				`<button class="button-1" onclick="PullSingleImage('${dropletId}')">Download</button>`;
+			
+			// Fix race condition: if it just finished downloading, docker images list might have been cached or fetched right before completion.
+			var isDoneAndWaiting = (imageInfo.download_status === 'done' && !imageInfo.exists);
+			var effectivelyExists = imageInfo.exists || imageInfo.download_status === 'done';
+			
+			if (isDoneAndWaiting) {
+				isDownloading = true; // Keep polling until exists is actually true
+			}
+			
+			var statusHtml = '';
+			var actionButton = '';
+			
+			if (imageInfo.download_status === 'downloading') {
+				isDownloading = true;
+				statusHtml = `
+				<div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+					<span style="background: rgba(0, 123, 255, 0.1); color: #007bff; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;">
+						<i class="fas fa-spinner fa-spin" style="margin-right: 4px;"></i> Downloading (${imageInfo.download_progress}%)
+					</span>
+					<div style="width: 120px; background: rgba(0,0,0,0.1); border-radius: 4px; overflow: hidden; height: 6px;">
+						<div style="width: ${imageInfo.download_progress}%; height: 10px; background: #007bff; transition: width 0.3s ease;"></div>
+					</div>
+				</div>`;
+				actionButton = `<button class="button-1" disabled style="opacity: 0.5; cursor: not-allowed;">Downloading...</button>`;
+			} else if (imageInfo.download_status === 'error') {
+				statusHtml = `
+				<span style="background: rgba(220, 53, 69, 0.1); color: #dc3545; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;" title="${imageInfo.download_error}">
+					<i class="fas fa-exclamation-triangle" style="margin-right: 4px;"></i> Error
+				</span>`;
+				actionButton = `<button class="button-1" onclick="PullSingleImage('${dropletId}')"><i class="fas fa-redo"></i> Retry</button>`;
+			} else if (effectivelyExists) {
+				statusHtml = `
+				<span style="background: rgba(40, 167, 69, 0.1); color: #28a745; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;">
+					<i class="fas fa-check-circle" style="margin-right: 4px;"></i> Ready
+				</span>`;
+				actionButton = `<span style="color: #28a745; font-weight: bold;"><i class="fas fa-check"></i></span>
+								<i class="fas fa-info-circle" style="cursor:pointer; color:#17a2b8; margin-left: 15px; font-size: 16px; vertical-align: middle;" onclick="ShowDockerImageInfo('${dropletId}')" title="Info"></i>
+								<i class="fas fa-sync-alt" style="cursor:pointer; color:#ffc107; margin-left: 15px; font-size: 16px; vertical-align: middle;" onclick="PullSingleImage('${dropletId}')" title="Repull Image"></i>`;
+			} else {
+				statusHtml = `
+				<span style="background: rgba(108, 117, 125, 0.1); color: #6c757d; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;">
+					<i class="fas fa-box-open" style="margin-right: 4px;"></i> Missing
+				</span>`;
+				actionButton = `<button class="button-1" onclick="PullSingleImage('${dropletId}')"><i class="fas fa-download"></i> Pull</button>`;
+			}
 				
 			if (dropletId !== 'guac') {
-				actionButton += ` <i class="fas fa-trash" style="cursor:pointer; color:red; margin-left: 10px;" onclick="AdminDeleteDroplet('${dropletId}')" title="Delete Droplet"></i>`;
+				actionButton += ` <i class="fas fa-trash" style="cursor:pointer; color:#dc3545; margin-left: 15px; font-size: 16px; vertical-align: middle;" onclick="AdminDeleteDroplet('${dropletId}')" title="Delete Droplet"></i>`;
 			}
 				
 			tableHtml += `
-			<tr>
-				<td><strong>${imageInfo.droplet_name}</strong></td>
-				<td><code>${imageInfo.image}</code></td>
-				<td class="${statusClass}">${statusText}</td>
-				<td>${actionButton}</td>
+			<tr style="transition: background 0.2s;">
+				<td style="vertical-align: middle;"><strong>${imageInfo.droplet_name}</strong></td>
+				<td style="vertical-align: middle;"><code style="background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px;">${imageInfo.image}</code></td>
+				<td style="vertical-align: middle;">${statusHtml}</td>
+				<td style="vertical-align: middle; white-space: nowrap;">${actionButton}</td>
 			</tr>`;
 		});
+		
+		if (isDownloading && window.imagesStatusTimeout) {
+			clearTimeout(window.imagesStatusTimeout);
+		}
+		if (isDownloading) {
+			window.imagesStatusTimeout = setTimeout(FetchImageStatus, 1500);
+		}
 	}
 	
 	tableHtml += `</table>`;
 	imagesContent.innerHTML = tableHtml;
+}
+
+function ShowDockerImageInfo(dropletId) {
+	let info = currentImagesStatus[dropletId];
+	if (!info) return;
+
+	let size = formatBytes(info.size);
+	let created = info.created ? new Date(info.created).toLocaleString() : "Unknown";
+
+	var header = document.getElementById('admin-modal-header');
+	var subtext = document.getElementById('admin-modal-subtext');
+	var content = document.querySelector('.admin-modal-main-content');
+	
+	header.innerText = "Docker Image Info";
+	subtext.innerText = "Information about the image " + info.image;
+
+	content.innerHTML = `
+	<div class="admin-modal-card">
+		<p>Image Name</p>
+		<input type="text" readonly disabled value="${info.image}">
+	</div>
+	<div class="admin-modal-card">
+		<p>Registry</p>
+		<input type="text" readonly disabled value="${info.registry}">
+	</div>
+	<div class="admin-modal-card">
+		<p>Total Size</p>
+		<input type="text" readonly disabled value="${size}">
+	</div>
+	<div class="admin-modal-card">
+		<p>Date Pulled / Created</p>
+		<input type="text" readonly disabled value="${created}">
+	</div>
+	<button class="button-1-full" onclick="AdminChangeTab('images')">Back to Images</button>
+	`;
 }
 
 function PullSingleImage(dropletId)
@@ -2064,6 +2395,17 @@ window.RenderRegistryDroplets = function() {
 			}
 		}
 
+		if (droplet.has_json_error) {
+			html += `
+				<tr>
+					<td><div><p>${droplet.id || 'Unknown'}</p></div></td>
+					<td colspan="2"><span style="color: #dc3545;"><i class="fas fa-exclamation-triangle"></i> Json error</span></td>
+					<td></td>
+				</tr>
+			`;
+			return;
+		}
+
 		html += `
 			<tr>
 				<td><div><img src="${droplet.image_path ? droplet.image_path : '/static/img/droplet_default.jpg'}"><p>${droplet.display_name}</p></div></td>
@@ -2076,11 +2418,80 @@ window.RenderRegistryDroplets = function() {
 				</td>
 				<td>${droplet.registry_name}</td>
 				<td class="admin-modal-table-actions">
-					<i class="fas fa-edit" onclick="ShowEditDropletRegistry('${droplet.display_name}', '${droplet.description}', '${droplet.image_path}', '${droplet.container_docker_registry}', '${droplet.container_docker_image}', this.parentElement.parentElement.querySelector('select').value)"></i>
+					<div style="display: flex; align-items: center; justify-content: flex-end; gap: 15px;">
+						<i class="fas fa-edit" style="cursor: pointer;" onclick="ShowEditDropletRegistry('${droplet.display_name}', '${droplet.description}', '${droplet.image_path}', '${droplet.container_docker_registry}', '${droplet.container_docker_image}', this.parentElement.parentElement.parentElement.querySelector('select').value)" title="Modify"></i>
+						<i class="fas fa-plus" style="cursor: pointer; color: #28a745;" onclick="QuickAddDropletRegistry('${droplet.display_name}', '${droplet.description}', '${droplet.image_path}', '${droplet.container_docker_registry}', '${droplet.container_docker_image}', this.parentElement.parentElement.parentElement.querySelector('select').value)" title="Quick Add"></i>
+					</div>
 				</td>
 			</tr>
 		`;
 	});
 
 	tbody.innerHTML = html;
+};
+
+window.QuickAddDropletRegistry = function(display_name, description, image_path, container_docker_registry, container_docker_image, selected_tag) {
+	var url = "/api/admin/droplet";
+	var xhr = new XMLHttpRequest();
+	xhr.open("POST", url, true);
+	xhr.setRequestHeader("Content-Type", "application/json");
+	xhr.onreadystatechange = function () {
+		if (xhr.readyState === 4) {
+			var json = JSON.parse(xhr.responseText);
+			if (json["success"] == true) {
+				CreateNotification("Droplet added successfully.", "success");
+				
+				// Attempt to pull the image
+				var pullUrl = "/api/admin/images/pull";
+				var pullXhr = new XMLHttpRequest();
+				pullXhr.open("POST", pullUrl, true);
+				pullXhr.setRequestHeader("Content-Type", "application/json");
+				pullXhr.onreadystatechange = function () {
+					if (pullXhr.readyState === 4) {
+						var pullJson = JSON.parse(pullXhr.responseText);
+						if (pullJson["success"] == true) {
+							CreateNotification("Docker image download started.", "success");
+						} else {
+							var pullError = pullJson["error"] || "Failed to download Docker image.";
+							CreateNotification(String(pullError), "warning");
+						}
+					}
+				};
+				
+				var pullData = JSON.stringify({
+					"droplet_id": json["droplet_id"],
+					"registry": container_docker_registry,
+					"image": container_docker_image + ":" + selected_tag
+				});
+				pullXhr.send(pullData);
+				
+				FetchAdminDroplets(function(json) {
+					AdminChangeTab('images');
+				});
+				GetDroplets();
+			} else {
+				CreateNotification(json["error"] || "Failed to add droplet.", "error");
+			}
+		}
+	};
+	
+	var data = JSON.stringify({
+		"id": null,
+		"display_name": display_name,
+		"description": description,
+		"image_path": image_path,
+		"droplet_type": "container",
+		"container_docker_registry": container_docker_registry,
+		"container_docker_image": container_docker_image + ":" + selected_tag,
+		"container_cores": 2,
+		"container_memory": 2768,
+		"container_persistent_profile_path": "",
+		"container_network": "flowcase_default_network",
+		"server_ip": "",
+		"server_port": 22,
+		"server_username": "",
+		"server_password": "",
+		"restricted_groups": []
+	});
+	xhr.send(data);
 };

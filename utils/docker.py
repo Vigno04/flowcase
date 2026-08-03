@@ -51,13 +51,13 @@ def cleanup_containers(app=None):
 		
 		print("Starting container cleanup and persistence check")
 		
-		# Get all instance IDs from the database - handle application context
-		instance_ids = []
+		# Get all instance IDs and statuses from the database
+		instance_dict = {}
 		if app:
 			with app.app_context():
 				instances = DropletInstance.query.all()
-				instance_ids = [instance.id for instance in instances]
-				print(f"Found {len(instance_ids)} active droplet instances in database")
+				instance_dict = {instance.id: instance.status for instance in instances}
+				print(f"Found {len(instance_dict)} active droplet instances in database")
 		else:
 			# When called without app context, just clean up orphaned containers
 			# based on naming pattern without checking database
@@ -78,17 +78,17 @@ def cleanup_containers(app=None):
 				container_instance_id = container.name.replace("flowcase_generated_", "")
 				
 				if app:
-					# If container doesn't have a corresponding instance in the database, remove it
-					if container_instance_id not in instance_ids:
+					# If container doesn't have a corresponding instance in the database, or is saved, remove it
+					if container_instance_id not in instance_dict or instance_dict[container_instance_id] == "saved":
 						orphaned_containers += 1
-						print(f"Removing orphaned container {container.name} (status: {container.status})")
+						print(f"Removing orphaned/saved container {container.name} (status: {container.status})")
 						try:
 							container.stop()
 							container.remove()
 						except Exception as e:
 							print(f"Error removing container {container.name}: {str(e)}")
 					else:
-						# If container is stopped, restart it
+						# If container is stopped and status is running, restart it
 						if container.status != "running":
 							restarted_containers += 1
 							print(f"Restarting container {container.name} (status: {container.status})")
@@ -262,8 +262,58 @@ def check_image_exists(registry, image_name):
 		log("ERROR", f"Error checking if image exists: {str(e)}")
 		return False
 
+import threading
+import json
+import os
+import docker
+
+def update_pull_progress(image_name, status, progress_pct=0, error=None):
+	"""Update the pull progress JSON file"""
+	progress_file = os.path.join('data', 'pull_progress.json')
+	try:
+		os.makedirs('data', exist_ok=True)
+		progress_data = {}
+		if os.path.exists(progress_file):
+			try:
+				with open(progress_file, 'r') as f:
+					progress_data = json.load(f)
+			except:
+				pass
+		
+		progress_data[image_name] = {
+			"status": status,
+			"progress": progress_pct,
+			"error": error
+		}
+		
+		with open(progress_file, 'w') as f:
+			json.dump(progress_data, f)
+	except Exception as e:
+		log("ERROR", f"Failed to write pull progress: {e}")
+
+def pull_single_image_bg(repository, tag, full_image):
+	"""Background worker to pull image and stream progress"""
+	try:
+		update_pull_progress(full_image, "downloading", 0)
+		
+		for line in docker_client.api.pull(repository, tag, stream=True, decode=True):
+			if 'progressDetail' in line and line['progressDetail']:
+				detail = line['progressDetail']
+				if 'current' in detail and 'total' in detail:
+					pct = int((detail['current'] / detail['total']) * 100)
+					update_pull_progress(full_image, "downloading", pct)
+			elif 'status' in line and line['status'].lower() == 'pulling fs layer':
+				update_pull_progress(full_image, "downloading", 0)
+				
+		update_pull_progress(full_image, "done", 100)
+		log("INFO", f"Successfully pulled Docker image {full_image}")
+	except Exception as e:
+		error_msg = str(e)
+		update_pull_progress(full_image, "error", 0, error_msg)
+		log("ERROR", f"Error pulling Docker image {full_image}: {error_msg}")
+
 def pull_single_image(registry, image_name):
-	"""Pull a single Docker image and return success status and message"""
+	"""Pull a single Docker image (asynchronously) and return success status and message"""
 	if not docker_client:
 		return False, "Docker client not available"
 	
@@ -289,13 +339,18 @@ def pull_single_image(registry, image_name):
 			repository = full_image
 			tag = "latest"
 		
-		log("INFO", f"Manually pulling Docker image {full_image}")
-		docker_client.images.pull(repository, tag)
-		log("INFO", f"Successfully pulled Docker image {full_image}")
-		return True, f"Successfully pulled {full_image}"
+		log("INFO", f"Manually pulling Docker image {full_image} in background")
+		
+		# Clear any old progress and start thread
+		update_pull_progress(full_image, "downloading", 0)
+		t = threading.Thread(target=pull_single_image_bg, args=(repository, tag, full_image))
+		t.daemon = True
+		t.start()
+		
+		return True, f"Started pulling {full_image}"
 		
 	except Exception as e:
-		error_msg = f"Error pulling Docker image {image_name}: {str(e)}"
+		error_msg = f"Error starting pull for Docker image {image_name}: {str(e)}"
 		log("ERROR", error_msg)
 		return False, error_msg
 
@@ -327,6 +382,7 @@ def get_images_status():
 				"id": droplet.id,
 				"name": droplet.display_name,
 				"image": full_image,
+				"registry": droplet.container_docker_registry or "docker.io",
 				"description": f"Droplet: {droplet.display_name}"
 			})
 		
@@ -336,15 +392,43 @@ def get_images_status():
 		for image in local_images:
 			local_image_tags.extend(image.tags)
 		
+		# Read pull progress
+		progress_data = {}
+		try:
+			progress_file = os.path.join('data', 'pull_progress.json')
+			if os.path.exists(progress_file):
+				with open(progress_file, 'r') as f:
+					progress_data = json.load(f)
+		except:
+			pass
+		
 		for img_info in required_images:
 			# Check if image exists locally using exact match instead of substring
 			exists = any(img_info["image"] == tag for tag in local_image_tags)
 			
+			size = 0
+			created = None
+			if exists:
+				try:
+					img_obj = docker_client.images.get(img_info["image"])
+					size = img_obj.attrs.get('Size', 0)
+					created = img_obj.attrs.get('Created', None)
+				except:
+					pass
+			
+			img_progress = progress_data.get(img_info["image"], {})
+			
 			status[img_info["id"]] = {
 				"droplet_name": img_info["name"],
 				"image": img_info["image"],
+				"registry": img_info["registry"],
 				"exists": exists,
-				"description": img_info["description"]
+				"size": size,
+				"created": created,
+				"description": img_info["description"],
+				"download_status": img_progress.get("status", ""),
+				"download_progress": img_progress.get("progress", 0),
+				"download_error": img_progress.get("error", "")
 			}
 			
 		return status

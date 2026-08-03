@@ -5,7 +5,28 @@ const isGuacamole = instanceInfo.droplet.droplet_type != 'container';
 window.onload = function() {
 	InitializeEventListeners();
 	SideBarHandleInit();
-	ReloadIFrame();
+
+	if (instanceInfo.status === 'saved') {
+		// Instance needs to be resumed first — trigger it from here
+		ShowLoadingScreen('Starting saved instance...');
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', '/api/instance/' + instanceInfo.id + '/resume', true);
+		xhr.setRequestHeader('Content-Type', 'application/json');
+		xhr.onreadystatechange = function() {
+			if (xhr.readyState === 4) {
+				var json = JSON.parse(xhr.responseText);
+				if (json['success']) {
+					instanceInfo.status = 'running';
+					ReloadIFrame();
+				} else {
+					ShowLoadingScreen('Failed to start: ' + (json['error'] || 'Unknown error'));
+				}
+			}
+		};
+		xhr.send();
+	} else {
+		ReloadIFrame();
+	}
 }
 
 function ReloadIFrame() {
@@ -30,10 +51,14 @@ function InitializeEventListeners() {
 	}
 }
 
+var isExiting = false;
+
 function receiveMessage(event) {
 	console.log(event.data);
 
 	if (event.data.action == 'connection_state') {
+		if (isExiting) return; // Ignore connection state changes if we are saving/exiting
+		
 		if (event.data.value == 'connected') {
 			OnVNCSuccess();
 		}
@@ -61,7 +86,7 @@ iframe.onload = function() {
 			console.log("iframe not loaded, reloading...");
 			iframe.src = iframe.src;
 		}
-	}, 100);
+	}, 4000);
 }
 
 function IsVNCConnected() {

@@ -43,18 +43,26 @@
             <nav class="nav">
                 <h1>Flowcase</h1>
                 
+                <div class="nav-tabs" style="display: flex; gap: 24px; position: absolute; left: 50%; transform: translateX(-50%);">
+                    <a href="#" class="nav-tab active" onclick="SwitchDashboardTab('droplets')" id="tab-droplets" style="color: var(--text-color); text-decoration: none; font-size: 16px; font-weight: bold; position: relative; padding: 16px 0;">Droplets</a>
+                    <a href="#" class="nav-tab" onclick="SwitchDashboardTab('saved')" id="tab-saved" style="color: var(--text-color-gray); text-decoration: none; font-size: 16px; font-weight: bold; position: relative; padding: 16px 0;">Saved Instances</a>
+                </div>
+
                 <div class="nav-links">
                     {% if current_user.has_permission("perm_admin_panel") %}
                     <a href="#" onclick="OpenAdminPanel()"><i class="fas fa-cogs"></i> Admin</a>
                     {% endif %}
                     <a href="#" class="user-link"><i class="fas fa-user"></i> {{ current_user.username }}</a>
                     <div class="user-dropdown">
+                        <a href="#" onclick="OpenProfileModal(); event.preventDefault();"><i class="fas fa-id-card"></i>Profile</a>
                         <a href="/logout"><i class="fas fa-sign-out-alt"></i>Logout</a>
                     </div>
                 </div>
             </nav>
             <div class="content">
-                <div class="main">
+                <div class="main" id="droplets-view">
+                </div>
+                <div class="main" id="saved-instances-view" style="display: none;">
                 </div>
             </div>
         </div>
@@ -120,6 +128,9 @@
                     <a href="#" class="admin-modal-sidebar-button" onclick="AdminChangeTab('logs', this)">
                         <i class="fas fa-history"></i>Logs
                     </a>
+                    <a href="#" class="admin-modal-sidebar-button" onclick="AdminChangeTab('sso', this)">
+                        <i class="fas fa-key"></i>SSO
+                    </a>
                 </div>
 
                 <div class="admin-modal-main">
@@ -132,12 +143,176 @@
             </div>
         </div>
         {% endif %}
+
+        <!-- Profile Modal -->
+        <div class="admin-modal" id="profile-modal">
+            <div class="profile-modal-content">
+                <i class="fas fa-times admin-modal-close" onclick="CloseProfileModal()"></i>
+
+                <div class="profile-modal-avatar">
+                    <i class="fas fa-user-circle"></i>
+                </div>
+                <h2 id="profile-username" style="margin:8px 0 4px; font-size:22px;"></h2>
+                <p id="profile-usertype" style="margin:0 0 24px; font-size:13px; color:var(--text-color-gray);"></p>
+
+                <div class="profile-tabs">
+                    <button class="profile-tab active" id="ptab-account" onclick="ProfileSwitchTab('account', this)">Account</button>
+                    <button class="profile-tab" id="ptab-password" onclick="ProfileSwitchTab('password', this)">Password</button>
+                    <button class="profile-tab" id="ptab-sso" onclick="ProfileSwitchTab('sso', this)">SSO</button>
+                </div>
+
+                <!-- Account tab -->
+                <div class="profile-panel" id="ppanel-account">
+                    <div class="profile-field">
+                        <label>Username</label>
+                        <p class="profile-field-hint">Your display name used to log in. Must be lowercase, no spaces.</p>
+                        <input type="text" id="profile-new-username" placeholder="New username">
+                    </div>
+                    <button class="button-1-full profile-save-btn" onclick="ProfileChangeUsername()">Save Username</button>
+                </div>
+
+                <!-- Password tab -->
+                <div class="profile-panel" id="ppanel-password" style="display:none;">
+                    <div class="profile-field">
+                        <label>Current Password</label>
+                        <p class="profile-field-hint">Enter your existing password to verify your identity.</p>
+                        <input type="password" id="profile-current-pw" placeholder="Current password">
+                    </div>
+                    <div class="profile-field">
+                        <label>New Password</label>
+                        <p class="profile-field-hint">Choose a strong password with at least 6 characters.</p>
+                        <input type="password" id="profile-new-pw" placeholder="New password">
+                    </div>
+                    <div class="profile-field">
+                        <label>Confirm New Password</label>
+                        <p class="profile-field-hint">Re-enter your new password to confirm it matches.</p>
+                        <input type="password" id="profile-confirm-pw" placeholder="Confirm new password">
+                    </div>
+                    <button class="button-1-full profile-save-btn" onclick="ProfileChangePassword()">Change Password</button>
+                </div>
+
+                <!-- SSO tab -->
+                <div class="profile-panel" id="ppanel-sso" style="display:none;">
+                    <div id="profile-sso-content">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <style>
+            .profile-modal-content {
+                background: var(--background-color);
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 20px;
+                padding: 40px 36px 32px;
+                width: 420px;
+                max-width: 95vw;
+                max-height: 92vh;
+                overflow-y: auto;
+                overflow-x: hidden;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                position: relative;
+                box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4);
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                transform: scale(0.97) translateY(16px);
+                box-sizing: border-box;
+            }
+            .admin-modal.active .profile-modal-content {
+                transform: scale(1) translateY(0);
+            }
+            .profile-modal-avatar {
+                font-size: 64px;
+                color: rgba(255,255,255,0.15);
+                margin-bottom: 8px;
+            }
+            .profile-tabs {
+                display: flex;
+                gap: 4px;
+                background: rgba(255,255,255,0.05);
+                border-radius: 10px;
+                padding: 4px;
+                width: 100%;
+                margin-bottom: 24px;
+            }
+            .profile-tab {
+                flex: 1;
+                padding: 8px 0;
+                background: transparent;
+                border: none;
+                border-radius: 7px;
+                color: var(--text-color-gray);
+                font-size: 13px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            .profile-tab:hover { color: var(--text-color); }
+            .profile-tab.active {
+                background: rgba(255,255,255,0.1);
+                color: var(--text-color);
+                font-weight: 600;
+            }
+            .profile-panel { width: 100%; }
+            .profile-field { width: 100%; margin-bottom: 16px; }
+            .profile-field label {
+                display: block;
+                font-size: 13px;
+                font-weight: 600;
+                margin-bottom: 4px;
+            }
+            .profile-field-hint {
+                font-size: 11px;
+                color: var(--text-color-gray);
+                margin: 0 0 6px;
+            }
+            .profile-field input {
+                width: calc(100% - 24px);
+                padding: 10px 12px;
+                background: rgba(255,255,255,0.04);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px;
+                color: var(--text-color);
+                font-size: 14px;
+                transition: border 0.2s;
+            }
+            .profile-field input:focus {
+                outline: none;
+                border-color: rgba(255,255,255,0.25);
+            }
+            .profile-save-btn { margin-top: 8px; width: 100%; }
+            .profile-sso-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 6px 14px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: 600;
+                margin-bottom: 16px;
+            }
+            .profile-sso-badge.linked { background: rgba(40,180,40,0.15); color: #4caf50; border: 1px solid rgba(40,180,40,0.3); }
+            .profile-sso-badge.unlinked { background: rgba(255,255,255,0.05); color: var(--text-color-gray); border: 1px solid rgba(255,255,255,0.1); }
+            .dropdown-item { padding: 10px 12px; display: flex; align-items: center; transition: background 0.15s; }
+            .dropdown-item:hover { background-color: #333 !important; }
+            .dropdown-item.danger:hover { background-color: rgba(220,53,69,0.2) !important; }
+            .dropdown-item i { pointer-events: none; width: 20px; margin-right: 8px; }
+        </style>
     </body>
     <script>
         //user dropdown
         document.querySelectorAll('.user-link')[0].addEventListener('click', () => {
             document.querySelectorAll('.user-dropdown')[0].classList.toggle('active');
         });
+
+        function formatBytes(bytes, decimals = 2) {
+            if (!+bytes) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        }
     </script>
     <script>
         //Retrieve stats/droplets/instances from the server and update the UI
@@ -170,14 +345,37 @@
             console.log("Retrieving droplets...");
         }
 
+        function SwitchDashboardTab(tabName) {
+            localStorage.setItem('dashboard_tab', tabName);
+            // Only update hash if it's different, to avoid adding redundant history entries on initial load
+            if (window.location.hash !== '#' + tabName) {
+                history.replaceState(null, null, '#' + tabName);
+            }
+            if (tabName === 'droplets') {
+                document.getElementById('tab-droplets').style.color = 'var(--text-color)';
+                document.getElementById('tab-saved').style.color = 'var(--text-color-gray)';
+                document.getElementById('droplets-view').style.display = 'flex';
+                document.getElementById('saved-instances-view').style.display = 'none';
+            } else {
+                document.getElementById('tab-saved').style.color = 'var(--text-color)';
+                document.getElementById('tab-droplets').style.color = 'var(--text-color-gray)';
+                document.getElementById('saved-instances-view').style.display = 'flex';
+                document.getElementById('droplets-view').style.display = 'none';
+            }
+        }
+
+        let currentDroplets = [];
+        let currentInstances = [];
+
         function UpdateDroplets(json)
         {
-            var mainDiv = document.querySelectorAll('.main')[0];
+            currentDroplets = json["droplets"];
+            var mainDiv = document.getElementById('droplets-view');
             mainDiv.innerHTML = "";
 
             json["droplets"].forEach(droplet => {
                 mainDiv.innerHTML += `
-                <div class="droplet" onclick="OpenDropletModal('${droplet.id}', '${droplet.display_name}', '${droplet.description ? droplet.description : ""}')">
+                <div class="droplet" onclick="OpenDropletModal('${droplet.id}')">
                     <img class="droplet-image" src="${droplet.image_path ? droplet.image_path : '/static/img/droplet_default.jpg'}" alt="${droplet.display_name}">
                     <div class="card-content">
                         <p class="droplet-title">${droplet.display_name}</p>
@@ -229,38 +427,208 @@
 
         function UpdateInstances(json)
         {
+            currentInstances = json["instances"];
             var instancesDiv = document.querySelectorAll('.droplet-instances')[0];
             instancesDiv.innerHTML = "";
+            
+            var savedInstancesDiv = document.getElementById('saved-instances-view');
+            savedInstancesDiv.innerHTML = "";
 
-            //set div to hidden if no instances
-            if (json["instances"].length == 0) {
+            let runningInstances = json["instances"].filter(i => i.status === "running");
+            let savedInstances = json["instances"].filter(i => i.snapshot_image_name != null);
+
+            //set div to hidden if no running instances
+            if (runningInstances.length == 0) {
                 instancesDiv.style.display = "none";
-
                 document.querySelectorAll('.container')[0].style.marginBottom = "0";
             } else {
                 instancesDiv.style.display = "flex";
-
                 document.querySelectorAll('.container')[0].style.marginBottom = "162px";
             }
 
-            json["instances"].forEach(instance => {
+            runningInstances.forEach(instance => {
+                let hasSave = instance.snapshot_image_name ? true : false;
+                let secondBtn = hasSave
+                    ? `<p class="droplet-instance-popup-close" onclick="CloseAndSaveInstance('${instance.id}', this)">Close</p>`
+                    : `<p class="droplet-instance-popup-destroy" onclick="RequestDestroyInstance('${instance.id}')">Destroy</p>`;
                 instancesDiv.innerHTML += `
                 <div class="droplet-instance" data-id="${instance.id}">
-
                     <div class="droplet-instance-popup" data-id="${instance.id}">
                         <p class="droplet-instance-popup-title">${instance.droplet.display_name}</p>
                         <img src="/desktop/${instance.id}/vnc/api/get_screenshot?width=256" alt="" class="droplet-instance-popup-screenshot">
                         <div class="droplet-instance-popup-buttons">
                             <p class="droplet-instance-popup-connect" onclick="window.location.href='/droplet/${instance.id}'">Connect</p>
-                            <p class="droplet-instance-popup-destroy" onclick="RequestDestroyInstance('${instance.id}')">Destroy</p>
+                            ${secondBtn}
                         </div>
                     </div>
-
-                    <img src="${instance.droplet.image_path ? instance.droplet.image_path : '/static/img/droplet_default.jpg'}"}" alt="${instance.droplet.display_name}" class="droplet-instance-image droplet-image" onclick="ToggleInstancePopup('${instance.id}')">
-
+                    <img src="${instance.droplet.image_path ? instance.droplet.image_path : '/static/img/droplet_default.jpg'}" alt="${instance.droplet.display_name}" class="droplet-instance-image droplet-image" onclick="ToggleInstancePopup('${instance.id}')">
                 </div>
                 `;
             });
+
+            if (savedInstances.length == 0) {
+                savedInstancesDiv.innerHTML = `
+                <div class="no-droplets">
+                    <h2>No saved instances.</h2>
+                    <p>Save a running droplet to see it here.</p>
+                </div>
+                `;
+            } else {
+                let dateCounts = {};
+                savedInstances.forEach(instance => {
+                    let dateStr = new Date(instance.updated_at).toLocaleDateString();
+                    dateCounts[dateStr] = (dateCounts[dateStr] || 0) + 1;
+                });
+
+                // Add an overlay to intercept clicks and hover when dropdown is open
+                if (!document.getElementById('dropdown-overlay')) {
+                    var overlay = document.createElement('div');
+                    overlay.id = 'dropdown-overlay';
+                    overlay.style.cssText = 'display: none; position: fixed; inset: 0; z-index: 90;';
+                    overlay.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        document.querySelectorAll('.instance-dropdown').forEach(d => { d.style.display = 'none'; });
+                        document.querySelectorAll('.droplet').forEach(d => { d.classList.remove('menu-open'); });
+                        this.style.display = 'none';
+                    });
+                    document.body.appendChild(overlay);
+                }
+
+                savedInstances.forEach(instance => {
+                    let name = instance.custom_name || instance.droplet.display_name;
+                    let dateObj = new Date(instance.updated_at);
+                    let dateStr = dateObj.toLocaleDateString();
+                    let displayDate = dateCounts[dateStr] > 1 
+                        ? dateObj.toLocaleDateString() + " " + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                        : dateStr;
+
+                    let isRunning = instance.status === "running";
+                    let clickAction = isRunning ? "" : `onclick="ResumeInstance('${instance.id}')"`;
+                    let opacityStyle = isRunning ? "opacity: 0.5; cursor: not-allowed;" : "";
+                    
+                    let dateDisplay = isRunning 
+                        ? `<p style="margin: 0; font-size: 12px; color: var(--primary-color); text-align: center; font-weight: bold;">Currently Running</p>`
+                        : `<p style="margin: 0; font-size: 12px; color: var(--text-color-gray); text-align: center;">Saved: ${displayDate}</p>`;
+
+                    savedInstancesDiv.innerHTML += `
+                    <div class="droplet" style="position: relative; ${opacityStyle}" ${clickAction}>
+                        <div style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.5); border-radius: 4px; padding: 4px; z-index: 95;" onclick="event.stopPropagation();">
+                            <i class="fas fa-ellipsis-v" style="cursor: pointer; padding: 4px 8px; color: white;" onclick="ToggleDropdown(event, '${instance.id}')"></i>
+                            <div id="dropdown-${instance.id}" class="instance-dropdown" style="display: none; position: absolute; left: 100%; top: 0; margin-left: 8px; background: #1c1c1c; border: 1px solid var(--border-color); border-radius: 4px; padding: 0; overflow: hidden; z-index: 100; min-width: 120px; box-shadow: 0 4px 6px rgba(0,0,0,0.5); text-align: left; cursor: pointer;">
+                                <div class="dropdown-item" onclick="ShowInstanceInfo('${instance.id}')"><i class="fas fa-info-circle"></i> Info</div>
+                                <div class="dropdown-item" onclick="RenameInstance('${instance.id}', '${name.replace(/'/g, "\\'")}')"><i class="fas fa-edit"></i> Rename</div>
+                                <div class="dropdown-item" onclick="DuplicateInstance('${instance.id}', '${name.replace(/'/g, "\\'")}')"><i class="fas fa-copy"></i> Duplicate</div>
+                                <div class="dropdown-item" onclick="ExportInstance('${instance.id}')"><i class="fas fa-file-export"></i> Export</div>
+                                <div class="dropdown-item danger" onclick="RequestDestroyInstance('${instance.id}')" style="color: #dc3545;"><i class="fas fa-trash"></i> Destroy</div>
+                            </div>
+                        </div>
+                        <img class="droplet-image" src="${instance.droplet.image_path ? instance.droplet.image_path : '/static/img/droplet_default.jpg'}" alt="${name}">
+                        <div class="card-content">
+                            <p class="droplet-title">${name}</p>
+                            ${dateDisplay}
+                        </div>
+                    </div> 
+                    `;
+                });
+            }
+        }
+
+        function ResumeInstance(instanceId, btn) {
+            window.location.href = '/droplet/' + instanceId;
+        }
+
+        function CloseAndSaveInstance(instanceId, btn) {
+            if (!confirm("Save and close this instance?")) return;
+            if (btn) {
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+                btn.style.pointerEvents = 'none';
+            }
+            var url = "/api/instance/" + instanceId + "/save";
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", url, true);
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4) {
+                    var json = JSON.parse(xhr.responseText);
+                    if (json["success"] == true) {
+                        CreateNotification("Instance saved and closed!", "success");
+                        UpdateAll();
+                    } else {
+                        if (btn) {
+                            btn.innerHTML = 'Close';
+                            btn.style.pointerEvents = 'auto';
+                        }
+                        CreateNotification(json["error"] || "Failed to save instance", "error");
+                    }
+                }
+            };
+            xhr.send(JSON.stringify({}));
+        }
+
+        function CloseModal() {
+            modal.classList.remove('active');
+        }
+
+        function ShowInstanceInfo(instanceId) {
+            let instance = currentInstances.find(i => i.id === instanceId);
+            if (!instance) return;
+
+            let name = instance.custom_name || instance.droplet.display_name;
+            let date = new Date(instance.updated_at).toLocaleString();
+            let snapSize = formatBytes(instance.snapshot_size);
+            let baseSize = formatBytes(instance.base_image_size);
+            let extraSize = instance.snapshot_size > 0 && instance.base_image_size > 0 ? formatBytes(instance.snapshot_size - instance.base_image_size) : "N/A";
+            
+            header.innerText = "Instance Info: " + name;
+            subtext.innerHTML = `
+                <b>Based on:</b> ${instance.droplet.display_name}<br>
+                <b>Last saved:</b> ${date}<br><br>
+                <b>Base Image Size:</b> ${baseSize}<br>
+                <b>Extra Data Saved:</b> ${extraSize}<br>
+                <b>Total Snapshot Size:</b> ${snapSize}
+            `;
+
+            let modalButtons = document.querySelector('.modal-buttons');
+            modalButtons.innerHTML = `
+                <button id="model-reject" class="button-1-full" onclick="CloseModal()">Close</button>
+            `;
+
+            modal.classList.add('active');
+        }
+
+        function OpenDropletModal(dropletId) {
+            let droplet = currentDroplets.find(d => d.id === dropletId);
+            if (!droplet) return;
+
+            // Check if there are any saved instances for this droplet
+            let relatedSaves = currentInstances.filter(i => i.status === "saved" && i.droplet.id === dropletId);
+
+            header.innerText = droplet.display_name;
+            subtext.innerText = droplet.description || "";
+
+            let modalButtons = document.querySelector('.modal-buttons');
+            modalButtons.innerHTML = '';
+
+            if (relatedSaves.length > 0) {
+                subtext.innerHTML += "<br><br><b>Saved Instances:</b><br>";
+                relatedSaves.forEach(save => {
+                    let name = save.custom_name || save.droplet.display_name;
+                    subtext.innerHTML += `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                        <span>${name}</span>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <button class="button-1-full" style="padding: 4px 12px; font-size: 12px;" onclick="ResumeInstance('${save.id}', this);">Resume</button>
+                            <button class="button-1" style="padding: 4px 12px; font-size: 12px; color: #dc3545;" onclick="RequestDestroyInstance('${save.id}')"><i class="fas fa-trash"></i></button>
+                        </div>
+                    </div>`;
+                });
+            }
+
+            modalButtons.innerHTML += `
+                <button id="model-accept" class="button-1-full" onclick="RequestNewInstance('${dropletId}', this);">Start from scratch</button>
+                <button id="model-reject" class="button-1" onclick="CloseModal()">Cancel</button>
+            `;
+
+            modal.classList.add('active');
         }
 
         function UpdateAll()
@@ -271,6 +639,10 @@
         }
 
         window.onload = function() {
+            let hashTab = window.location.hash ? window.location.hash.substring(1) : null;
+            let savedTab = hashTab || localStorage.getItem('dashboard_tab') || 'droplets';
+            SwitchDashboardTab(savedTab);
+            
             UpdateAll();
 
             setTimeout(() => {
@@ -299,34 +671,19 @@
         const header = document.getElementById('model-header');
         const subtext = document.getElementById('model-subtext');
 
-        currentDropletID = null;
-
-        function OpenDropletModal(dropletID, displayName, description)
-        {
-            ResetModalButtons();
-
-            currentDropletID = dropletID;
-
-            header.innerText = displayName;
-            subtext.innerText = description;
-
-            modal.classList.add('active');
+        function ResetModalButtons() {
+            if (accept) {
+                accept.innerHTML = 'Launch';
+                accept.disabled = false;
+            }
+            if (reject) {
+                reject.disabled = false;
+            }
         }
 
-        accept.addEventListener('click', () => {
-            accept.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Launching...'
-            accept.disabled = true;
-            reject.disabled = true;
-
-            RequestNewInstance(currentDropletID);
-        });
-
-        reject.addEventListener('click', () => {
-            modal.classList.remove('active');
-        });
-
         modal.addEventListener('click', () => {
-            if (!reject.disabled)
+            let rej = document.getElementById('model-reject');
+            if (rej && !rej.disabled)
             {
                 modal.classList.remove('active');
             }
@@ -336,12 +693,140 @@
             e.stopPropagation();
         });
 
-        function ResetModalButtons() {
-            accept.innerHTML = 'Launch';
-            accept.disabled = false;
-            reject.disabled = false;
+        function CloseModal() {
+            modal.classList.remove('active');
+        }
+
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', function(e) {
+            document.querySelectorAll('.instance-dropdown').forEach(d => {
+                d.style.display = 'none';
+            });
+            document.querySelectorAll('.droplet').forEach(d => {
+                d.classList.remove('menu-open');
+            });
+        });
+
+        function ToggleDropdown(e, saveId) {
+            e.stopPropagation();
+            var dropdown = document.getElementById('dropdown-' + saveId);
+            var isVisible = dropdown.style.display === 'block';
+            
+            // Hide all other dropdowns
+            document.querySelectorAll('.instance-dropdown').forEach(d => {
+                d.style.display = 'none';
+            });
+            document.querySelectorAll('.droplet').forEach(d => {
+                d.classList.remove('menu-open');
+            });
+            
+            var overlay = document.getElementById('dropdown-overlay');
+            if (!isVisible) {
+                dropdown.style.display = 'block';
+                if (overlay) overlay.style.display = 'block';
+                
+                var dropletCard = dropdown.closest('.droplet');
+                if (dropletCard) dropletCard.classList.add('menu-open');
+            } else {
+                if (overlay) overlay.style.display = 'none';
+            }
+        }
+
+        function RenameInstance(saveId, currentName) {
+            var newName = prompt("Enter a new name for this save:", currentName);
+            if (!newName || newName.trim() === "" || newName === currentName) return;
+            
+            var url = "/api/instance/" + saveId + "/rename";
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", url, true);
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4) {
+                    var json = JSON.parse(xhr.responseText);
+                    if (json["success"] == true) {
+                        CreateNotification("Instance renamed successfully!", "success");
+                        UpdateAll();
+                        // Re-open modal to reflect changes
+                        setTimeout(() => {
+                            let instance = currentInstances.find(i => i.id === saveId);
+                            if (instance) OpenDropletModal(instance.droplet.id);
+                        }, 500);
+                    } else {
+                        CreateNotification(json["error"] || "Failed to rename instance", "error");
+                    }
+                }
+            };
+            xhr.send(JSON.stringify({ "custom_name": newName }));
+        }
+
+        function DuplicateInstance(saveId, currentName) {
+            var newName = prompt("Enter a name for the duplicated instance:", currentName + " (Copy)");
+            if (!newName || newName.trim() === "") return;
+            
+            var url = "/api/instance/" + saveId + "/save_as";
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", url, true);
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4) {
+                    var json = JSON.parse(xhr.responseText);
+                    if (json["success"] == true) {
+                        CreateNotification("Instance duplicated successfully", "success");
+                        UpdateAll();
+                    } else {
+                        CreateNotification(json["error"] || "Error duplicating instance", "error");
+                    }
+                }
+            };
+            xhr.send(JSON.stringify({ "custom_name": newName }));
+        }
+
+        function ExportInstance(saveId) {
+            CreateNotification("Export functionality is coming soon!", "info");
         }
     </script>
+    <style>
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 0 0 rgba(var(--primary-color-rgb, 10, 132, 255), 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(var(--primary-color-rgb, 10, 132, 255), 0); }
+            100% { box-shadow: 0 0 0 0 rgba(var(--primary-color-rgb, 10, 132, 255), 0); }
+        }
+        
+        .running-badge {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: var(--primary-color);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 10;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            animation: pulse-glow 2s infinite;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .dropdown-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+        }
+        .dropdown-item:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .dropdown-item i {
+            width: 20px;
+            text-align: center;
+            margin-right: 8px;
+        }
+    </style>
     <script>
         //Droplet instance popup
         function ToggleInstancePopup(instanceID)
@@ -360,8 +845,15 @@
         }
     </script>
     <script>
-        function RequestNewInstance(dropletID)
+        function RequestNewInstance(dropletID, btn)
         {
+            if (btn) {
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+                btn.disabled = true;
+                var rejectBtn = document.getElementById('model-reject');
+                if(rejectBtn) rejectBtn.disabled = true;
+            }
+            
             var url = "/api/instance/request";
             var xhr = new XMLHttpRequest();
             xhr.open("POST", url, true);
@@ -374,7 +866,12 @@
                     }
                     else
                     {
-                        ResetModalButtons();
+                        if (btn) {
+                            btn.innerHTML = 'Start from scratch';
+                            btn.disabled = false;
+                            var rejectBtn = document.getElementById('model-reject');
+                            if(rejectBtn) rejectBtn.disabled = false;
+                        }
                         if (json["error"] != null) {
                             CreateNotification(json["error"], "error");
                         }
@@ -406,6 +903,7 @@
                     if (json["success"] == true) {
                         //Update instances
                         GetInstances();
+                        CloseModal();
                         CreateNotification("Instance destroyed successfully.", "success");
                     }
                     else
@@ -461,4 +959,149 @@
     {% if current_user.has_permission("perm_admin_panel") %}
     <script src="/static/js/dashboard/admin.js"></script>
     {% endif %}
+    <script>
+        // ── Profile Modal ──────────────────────────────────────────────────────
+
+        var _profileData = null;
+
+        function OpenProfileModal() {
+            // Close user dropdown
+            document.querySelectorAll('.user-dropdown').forEach(d => d.classList.remove('active'));
+
+            var modal = document.getElementById('profile-modal');
+            modal.classList.add('active');
+
+            // Load profile data
+            fetch('/api/profile')
+                .then(r => r.json())
+                .then(json => {
+                    if (!json.success) return;
+                    _profileData = json.profile;
+                    document.getElementById('profile-username').innerText = json.profile.username;
+                    document.getElementById('profile-new-username').value = json.profile.username;
+                    document.getElementById('profile-usertype').innerText =
+                        json.profile.usertype === 'Internal' ? 'Local account' : json.profile.usertype + ' account';
+
+                    // Hide password tab for non-internal accounts
+                    var pwTab = document.getElementById('ptab-password');
+                    if (json.profile.usertype !== 'Internal') {
+                        pwTab.style.display = 'none';
+                    } else {
+                        pwTab.style.display = '';
+                    }
+
+                    // Hide SSO tab if SSO is not configured
+                    var ssoTab = document.getElementById('ptab-sso');
+                    ssoTab.style.display = json.profile.sso_enabled ? '' : 'none';
+
+                    // Render SSO panel
+                    ProfileRenderSsoPanel(json.profile);
+                });
+
+            // Click outside to close
+            modal.onclick = function(e) { if (e.target === modal) CloseProfileModal(); };
+        }
+
+        function CloseProfileModal() {
+            document.getElementById('profile-modal').classList.remove('active');
+        }
+
+        function ProfileSwitchTab(tab, el) {
+            document.querySelectorAll('.profile-tab').forEach(t => t.classList.remove('active'));
+            el.classList.add('active');
+            document.querySelectorAll('.profile-panel').forEach(p => p.style.display = 'none');
+            document.getElementById('ppanel-' + tab).style.display = '';
+        }
+
+        function ProfileChangeUsername() {
+            var newUsername = document.getElementById('profile-new-username').value.trim();
+            fetch('/api/profile/change_username', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({new_username: newUsername})
+            }).then(r => r.json()).then(json => {
+                if (json.success) {
+                    CreateNotification('Username changed to ' + json.new_username + '!', 'success');
+                    document.getElementById('profile-username').innerText = json.new_username;
+                    // Update nav display
+                    document.querySelector('.user-link').innerHTML =
+                        '<i class="fas fa-user"></i> ' + json.new_username;
+                } else {
+                    CreateNotification(json.error || 'Failed to change username.', 'error');
+                }
+            });
+        }
+
+        function ProfileChangePassword() {
+            fetch('/api/profile/change_password', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    current_password: document.getElementById('profile-current-pw').value,
+                    new_password: document.getElementById('profile-new-pw').value,
+                    confirm_password: document.getElementById('profile-confirm-pw').value,
+                })
+            }).then(r => r.json()).then(json => {
+                if (json.success) {
+                    CreateNotification('Password changed successfully!', 'success');
+                    document.getElementById('profile-current-pw').value = '';
+                    document.getElementById('profile-new-pw').value = '';
+                    document.getElementById('profile-confirm-pw').value = '';
+                } else {
+                    CreateNotification(json.error || 'Failed to change password.', 'error');
+                }
+            });
+        }
+
+        function ProfileRenderSsoPanel(profile) {
+            var el = document.getElementById('profile-sso-content');
+            if (!profile.sso_enabled) {
+                el.innerHTML = '<p style="color:var(--text-color-gray); font-size:13px; text-align:center; margin-top:8px;">SSO is not enabled on this server.</p>';
+                return;
+            }
+
+            if (profile.sso_linked) {
+                el.innerHTML = `
+                    <div style="text-align:center;">
+                        <div class="profile-sso-badge linked"><i class="fas fa-check-circle"></i> SSO Linked</div>
+                        <p style="font-size:13px; color:var(--text-color-gray); margin:8px 0 20px;">
+                            Your account is linked to an SSO identity.<br>
+                            You can sign in using your identity provider.
+                        </p>
+                        <button class="button-1" style="color:#e05454; border-color:#e05454;" onclick="ProfileUnlinkSso()">
+                            <i class="fas fa-unlink"></i> Unlink SSO
+                        </button>
+                    </div>`;
+            } else {
+                el.innerHTML = `
+                    <div style="text-align:center;">
+                        <div class="profile-sso-badge unlinked"><i class="fas fa-link"></i> Not Linked</div>
+                        <p style="font-size:13px; color:var(--text-color-gray); margin:8px 0 20px;">
+                            Link your account to SSO so you can sign in<br>
+                            using your organisation's identity provider.
+                        </p>
+                        <p style="font-size:11px; color:var(--text-color-gray); margin-bottom:16px;">
+                            To link, sign in via SSO from the login page while logged into this account,
+                            or ask your administrator to link it manually.
+                        </p>
+                    </div>`;
+            }
+        }
+
+        function ProfileUnlinkSso() {
+            if (!confirm('Are you sure you want to unlink SSO from your account?')) return;
+            fetch('/api/profile/unlink_sso', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+                .then(r => r.json()).then(json => {
+                    if (json.success) {
+                        CreateNotification('SSO unlinked successfully.', 'success');
+                        if (_profileData) {
+                            _profileData.sso_linked = false;
+                            ProfileRenderSsoPanel(_profileData);
+                        }
+                    } else {
+                        CreateNotification(json.error || 'Failed to unlink SSO.', 'error');
+                    }
+                });
+        }
+    </script>
 </html>

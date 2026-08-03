@@ -70,26 +70,20 @@ function ToggleDownloadSection() {
 	}
 }
 
-function DestroyDropletButton()
-{
-	if (!confirm("Are you sure you want to destroy this droplet?")) {
+function DestroyDropletButton() {
+	if (!confirm("Are you sure you want to exit without saving? Any unsaved progress will be lost.")) {
 		return;
 	}
 
+	isExiting = true;
 	AudioStop();
-
-	const destroyButtonIcon = document.getElementById('control-destroy-instance').querySelector('i');
-	destroyButtonIcon.classList.remove('fa-trash');
-	destroyButtonIcon.classList.add('fa-spinner');
-	destroyButtonIcon.classList.add('fa-spin');
-
 	toggleSidebar();
 	iframe.style.display = 'none';
 	iframe.src = "about:blank";
 
-	ShowLoadingScreen("Destroying instance...");
+	ShowLoadingScreen("Exiting instance...");
 
-	var url = `/api/instance/${instanceInfo.id}/destroy`;
+	var url = `/api/instance/${instanceInfo.id}/exit`;
 	var xhr = new XMLHttpRequest();
 	xhr.open("GET", url, true);
 	xhr.setRequestHeader("Content-Type", "application/json");
@@ -100,5 +94,74 @@ function DestroyDropletButton()
 	};
 	xhr.send();
 
-	console.log("Requesting to destroy instance " + instanceInfo.id + "...");
+	console.log("Requesting to exit instance " + instanceInfo.id + "...");
+}
+
+function SaveDropletButton() {
+	// If this is the first save (no snapshot yet), ask for a name
+	if (!instanceInfo.has_snapshot) {
+		var customName = prompt("Name this save:", instanceInfo.droplet.display_name);
+		if (customName === null) return; // User cancelled
+		if (!customName.trim()) customName = instanceInfo.droplet.display_name;
+
+		isExiting = true;
+		AudioStop();
+		toggleSidebar();
+		iframe.style.display = 'none';
+		iframe.src = "about:blank";
+		ShowLoadingScreen("Saving instance... This may take a moment.");
+
+		var url = `/api/instance/${instanceInfo.id}/save_as`;
+		var xhr = new XMLHttpRequest();
+		xhr.open("POST", url, true);
+		xhr.setRequestHeader("Content-Type", "application/json");
+		xhr.onreadystatechange = function () {
+			if (xhr.readyState === 4) {
+				window.location.href = "/dashboard";
+			}
+		};
+		xhr.send(JSON.stringify({ "custom_name": customName }));
+	} else {
+		// Subsequent save — just overwrite
+		isExiting = true;
+		AudioStop();
+		toggleSidebar();
+		iframe.style.display = 'none';
+		iframe.src = "about:blank";
+		ShowLoadingScreen("Saving instance... This may take a moment.");
+
+		var url = `/api/instance/${instanceInfo.id}/save`;
+		var xhr = new XMLHttpRequest();
+		xhr.open("POST", url, true);
+		xhr.setRequestHeader("Content-Type", "application/json");
+		xhr.onreadystatechange = function () {
+			if (xhr.readyState === 4) {
+				window.location.href = "/dashboard";
+			}
+		};
+		xhr.send(JSON.stringify({}));
+	}
+}
+
+function SaveAsDropletButton() {
+	var customName = prompt("Enter a name for this save:", `Save - ${new Date().toLocaleString()}`);
+	if (!customName) return; // User cancelled
+
+	isExiting = true;
+	AudioStop();
+	toggleSidebar();
+	iframe.style.display = 'none';
+	iframe.src = "about:blank";
+	ShowLoadingScreen("Creating save... This may take a moment.");
+
+	var url = `/api/instance/${instanceInfo.id}/save_as`;
+	var xhr = new XMLHttpRequest();
+	xhr.open("POST", url, true);
+	xhr.setRequestHeader("Content-Type", "application/json");
+	xhr.onreadystatechange = function () {
+		if (xhr.readyState === 4) {
+			window.location.href = "/dashboard";
+		}
+	};
+	xhr.send(JSON.stringify({ "custom_name": customName }));
 }

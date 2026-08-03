@@ -18,6 +18,8 @@
 			var instanceInfo = {
 				"id": "{{instance_id}}",
 				"guac_token": "{{guac_token}}",
+				"status": "{{ instance_status }}",
+				"has_snapshot": {{ 'true' if has_snapshot else 'false' }},
 				"droplet": {
 					"id": "{{ droplet.id }}",
 					"display_name": "{{ droplet.display_name }}",
@@ -115,10 +117,32 @@
 						<p>Dashboard</p>
 					</div>
 
-					<div class="sidebar-button" id="control-destroy-instance" onclick="DestroyDropletButton()">
-						<i class="fa fa-trash"></i>
-						<p>Destroy Droplet</p>
+					{% if has_snapshot %}
+					<div class="sidebar-button" onclick="SaveDropletButton()">
+						<i class="fa fa-save"></i>
+						<p>Save</p>
 					</div>
+
+					<div class="sidebar-button" onclick="SaveAsDropletButton()">
+						<i class="fa fa-copy"></i>
+						<p>Save As...</p>
+					</div>
+
+					<div class="sidebar-button" id="control-destroy-instance" onclick="DestroyDropletButton()" style="color: #ff4d4d; border-color: #ff4d4d;">
+						<i class="fa fa-sign-out-alt"></i>
+						<p>Exit Without Saving</p>
+					</div>
+					{% else %}
+					<div class="sidebar-button" onclick="SaveAsDropletButton()">
+						<i class="fa fa-copy"></i>
+						<p>Save As...</p>
+					</div>
+
+					<div class="sidebar-button" id="control-destroy-instance" onclick="DestroyDropletButton()" style="color: #ff4d4d; border-color: #ff4d4d;">
+						<i class="fa fa-trash"></i>
+						<p>Destroy</p>
+					</div>
+					{% endif %}
 
 				</div>
 			</div>

@@ -12,6 +12,7 @@ def parse_args():
                        help='Enable Traefik + Authentik integration mode (reads username from X-Authentik-Username header)')
     parser.add_argument('--registry-lock', required=False,
                        help='Name of a fixed registry to lock registry edit in the frontend')
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     
     # Add any other arguments that might be needed
     

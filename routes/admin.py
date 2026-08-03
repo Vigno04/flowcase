@@ -200,6 +200,8 @@ def api_admin_edit_droplet():
 	if not droplet or droplet_id == "null":
 		create_new = True
 		droplet = Droplet()
+		
+	old_image = droplet.container_docker_image if not create_new and droplet.droplet_type == "container" else None
   
 	# Validate input
 	droplet.description = request.json.get('description', None)
@@ -287,6 +289,14 @@ def api_admin_edit_droplet():
  
 	db.session.commit()
  
+	# Delete old image if it was changed
+	if not create_new and old_image and old_image != droplet.container_docker_image:
+		if utils.docker.is_docker_available():
+			try:
+				utils.docker.docker_client.images.remove(old_image, force=False)
+			except Exception:
+				pass
+
 	return jsonify({
 		"success": True,
 		"droplet_id": droplet.id
@@ -303,6 +313,8 @@ def api_admin_delete_droplet():
 	if not droplet:
 		return jsonify({"success": False, "error": "Droplet not found"}), 404
  
+	old_image = droplet.container_docker_image if droplet.droplet_type == "container" else None
+
 	db.session.delete(droplet)
 	db.session.commit()
  
@@ -318,6 +330,12 @@ def api_admin_delete_droplet():
 				pass  # Container might not exist
 			db.session.delete(instance)
 			db.session.commit()
+			
+		if old_image:
+			try:
+				utils.docker.docker_client.images.remove(old_image, force=False)
+			except Exception:
+				pass
 	else:
 		# Even if Docker is not available, we should still delete the DB records
 		for instance in instances:
@@ -910,8 +928,6 @@ def api_admin_networks():
 	
 	try:
 		all_networks = utils.docker.list_available_networks()
-		
-		# Filter networks: only include default network and networks starting with lan_ or vlan_
 		filtered_networks = []
 		for network in all_networks:
 			network_name = network["name"]
@@ -919,11 +935,64 @@ def api_admin_networks():
 				network_name.startswith("lan_") or
 				network_name.startswith("vlan_")):
 				filtered_networks.append(network)
-		
-		return jsonify({
-			"success": True,
-			"networks": filtered_networks
-		})
+		return jsonify({"success": True, "networks": filtered_networks})
 	except Exception as e:
+		from utils.logger import log
 		log("ERROR", f"Error listing networks: {str(e)}")
 		return jsonify({"success": False, "error": str(e)}), 500
+
+@admin_bp.route('/sso', methods=['GET'])
+@login_required
+def api_admin_sso_get():
+	"""Get SSO configuration"""
+	if not Permissions.check_permission(current_user.id, Permissions.ADMIN_PANEL):
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+	from models.sso import SsoConfig
+	config = SsoConfig.query.first()
+	if not config:
+		return jsonify({"success": True, "sso": {
+			"enabled": False, "disable_classic_login": False,
+			"provider_name": "", "client_id": "", "client_secret": "",
+			"issuer_url": "", "authorization_endpoint": "",
+			"token_endpoint": "", "userinfo_endpoint": "",
+			"redirect_uri": "", "scopes": "openid profile email"}})
+	return jsonify({"success": True, "sso": {
+		"enabled": config.enabled,
+		"disable_classic_login": config.disable_classic_login,
+		"provider_name": config.provider_name or "",
+		"client_id": config.client_id or "",
+		"client_secret": "****" if config.client_secret else "",
+		"issuer_url": config.issuer_url or "",
+		"authorization_endpoint": config.authorization_endpoint or "",
+		"token_endpoint": config.token_endpoint or "",
+		"userinfo_endpoint": config.userinfo_endpoint or "",
+		"redirect_uri": config.redirect_uri or "",
+		"scopes": config.scopes or "openid profile email"}})
+
+@admin_bp.route('/sso', methods=['POST'])
+@login_required
+def api_admin_sso_save():
+	"""Save SSO configuration"""
+	if not Permissions.check_permission(current_user.id, Permissions.ADMIN_PANEL):
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+	from models.sso import SsoConfig
+	config = SsoConfig.query.first()
+	if not config:
+		config = SsoConfig()
+		db.session.add(config)
+	data = request.json
+	config.enabled = bool(data.get("enabled", False))
+	config.disable_classic_login = bool(data.get("disable_classic_login", False))
+	config.provider_name = data.get("provider_name") or None
+	config.client_id = data.get("client_id") or None
+	config.issuer_url = data.get("issuer_url") or None
+	config.authorization_endpoint = data.get("authorization_endpoint") or None
+	config.token_endpoint = data.get("token_endpoint") or None
+	config.userinfo_endpoint = data.get("userinfo_endpoint") or None
+	config.redirect_uri = data.get("redirect_uri") or None
+	config.scopes = data.get("scopes") or "openid profile email"
+	new_secret = data.get("client_secret", "")
+	if new_secret and new_secret != "****":
+		config.client_secret = new_secret
+	db.session.commit()
+	return jsonify({"success": True, "message": "SSO configuration saved."})

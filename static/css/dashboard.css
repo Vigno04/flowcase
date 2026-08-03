@@ -102,8 +102,8 @@ nav .nav-links .fas {
 	position: absolute;
 	top: 48px;
 	right: 8px;
-	flex-direction: row;
-	align-items: center;
+	flex-direction: column;
+	align-items: stretch;
 	justify-content: center;
 
 	background-color: var(--background-color);
@@ -111,7 +111,7 @@ nav .nav-links .fas {
 	border-radius: 8px;
 	border: 1px solid #27272A;
 
-	margin-left: 16px;
+	transition: all 0.2s;
 
 	transition: all 0.2s;
 
@@ -234,13 +234,25 @@ nav .nav-links .fas {
 	margin: 24px;
 	height: 160px;
 	max-height: 160px;
-
-	transition: all 0.2s;
+	cursor: pointer;
+	transition: transform 0.2s;
 }
 
 .droplet:hover {
-	cursor: pointer;
-	scale: 1.1;
+	transform: scale(1.1);
+}
+
+/* Used for saved instance cards — scale is disruptive next to absolute elements like dropdown */
+.droplet.no-scale:hover {
+	transform: none;
+	scale: none;
+}
+
+/* Disable hover scale when menu is open */
+.droplet.menu-open,
+.droplet.menu-open:hover {
+	transform: none;
+	scale: none;
 }
 
 .droplet-image {
@@ -355,6 +367,14 @@ nav .nav-links .fas {
 .droplet-instances .droplet-instance .droplet-instance-popup .droplet-instance-popup-buttons p:hover {
 	cursor: pointer;
 	color: var(--text-color-gray);
+}
+
+.droplet-instances .droplet-instance .droplet-instance-popup .droplet-instance-popup-destroy {
+	color: #dc3545;
+}
+
+.droplet-instances .droplet-instance .droplet-instance-popup .droplet-instance-popup-close {
+	color: #28a745;
 }
 
 .notifications
@@ -556,7 +576,7 @@ nav .nav-links .fas {
 }
 
 /* Close Button */
-.admin-modal .admin-modal-content .admin-modal-close {
+.admin-modal .admin-modal-close {
 	position: absolute;
 	top: 16px;
 	right: 16px;
@@ -569,7 +589,7 @@ nav .nav-links .fas {
 	z-index: 101;
 }
 
-.admin-modal .admin-modal-content .admin-modal-close:hover {
+.admin-modal .admin-modal-close:hover {
 	background: rgba(255, 255, 255, 0.1);
 	color: var(--text-color-gray);
 }

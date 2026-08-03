@@ -13,6 +13,7 @@ class User(UserMixin, db.Model):
 	groups = db.Column(db.String(255), nullable=False)
 	usertype = db.Column(db.String(20), nullable=False, default="Internal")
 	protected = db.Column(db.Boolean, nullable=False, default=False)
+	sso_subject = db.Column(db.String(255), nullable=True, unique=True)  # OIDC sub claim for SSO linking
 	
 	def has_permission(self, permission):
 		return Permissions.check_permission(self.id, permission)
