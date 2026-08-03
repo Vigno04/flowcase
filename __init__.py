@@ -46,6 +46,20 @@ def create_app(config=None):
 
 def initialize_database_and_setup():
 	db.create_all()
+	
+	# Migrate sso_config if needed
+	try:
+		db.session.execute(db.text('ALTER TABLE sso_config ADD COLUMN auto_create_accounts BOOLEAN NOT NULL DEFAULT 0'))
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+		
+	try:
+		db.session.execute(db.text('ALTER TABLE sso_config ADD COLUMN default_group_id VARCHAR(36)'))
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+		
 	from utils.setup import initialize_app
 	from flask import current_app
 	initialize_app(current_app) 
