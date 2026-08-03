@@ -9,6 +9,10 @@ class SsoConfig(db.Model):
 
     # Disable classic username/password login entirely when SSO is enabled
     disable_classic_login = db.Column(db.Boolean, nullable=False, default=False)
+    
+    # Auto account creation and default group
+    auto_create_accounts = db.Column(db.Boolean, nullable=False, default=False)
+    default_group_id = db.Column(db.String(36), nullable=True)
 
     # OIDC provider settings
     provider_name = db.Column(db.String(100), nullable=True)           # Display name shown to users (e.g. "Authentik")

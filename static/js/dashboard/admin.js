@@ -525,6 +525,14 @@ function AdminChangeTab(tab, element = null)
 
 		FetchAdminSsoConfig(function(json) {
 			var sso = json["sso"];
+			var groups = json["groups"] || [];
+			
+			var groupOptions = '<option value="">No Default Group</option>';
+			groups.forEach(function(g) {
+				var selected = sso.default_group_id === g.id ? 'selected' : '';
+				groupOptions += `<option value="${g.id}" ${selected}>${g.display_name}</option>`;
+			});
+
 			content.innerHTML = `
 				<div style="max-width: 538px; width: 100%;">
 
@@ -558,6 +566,31 @@ function AdminChangeTab(tab, element = null)
 						</label>
 					</div>
 
+					<!-- Auto Account Creation toggle -->
+					<div class="admin-modal-card" style="flex-direction: row; align-items: center; justify-content: space-between; padding: 16px 0;">
+						<div style="flex: 1; padding-right: 24px;">
+							<p style="margin:0; font-weight:600; font-size:15px;">Auto Create Accounts</p>
+							<p class="admin-modal-help-text" style="margin-top: 6px;">
+								If enabled, users logging in via SSO for the first time will have a Flowcase account created automatically.
+							</p>
+						</div>
+						<label class="sso-toggle" style="margin-right: 20px;">
+							<input type="checkbox" id="sso-auto-create" ${sso.auto_create_accounts ? 'checked' : ''}>
+							<span class="sso-toggle-slider"></span>
+						</label>
+					</div>
+
+					<!-- Default Group -->
+					<div class="admin-modal-card" style="padding: 12px 0;">
+						<p>Default Group</p>
+						<p class="admin-modal-help-text">
+							New users created via SSO will be automatically added to this group.
+						</p>
+						<select id="sso-default-group" style="width:100%; padding: 8px 12px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); color: white; border-radius: 8px;">
+							${groupOptions}
+						</select>
+					</div>
+
 					<hr style="margin:16px 0; border: none; border-top: 1px solid rgba(255,255,255,0.08);">
 
 					<!-- OIDC provider config -->
@@ -579,7 +612,7 @@ function AdminChangeTab(tab, element = null)
 					<div class="admin-modal-card" style="padding: 12px 0;">
 						<p>Issuer URL</p>
 						<p class="admin-modal-help-text">
-							The base URL of your OIDC provider. Flowcase appends <code>/.well-known/openid-configuration</code>.
+							The base URL of your OIDC provider (e.g. <code>https://auth.example.com/application/o/flowcase/</code>). Do not include <code>/.well-known/openid-configuration</code>.
 						</p>
 						<input type="text" id="sso-issuer-url" placeholder="https://auth.example.com/application/o/app-slug" value="${sso.issuer_url || ''}">
 					</div>
@@ -680,26 +713,24 @@ function AdminChangeTab(tab, element = null)
 					#sso-disable-classic:checked + .sso-toggle-slider { background: #e05454 !important; }
 					.sso-toggle input:checked + .sso-toggle-slider:before { transform: translateX(20px); }
 				</style>
-				<script>
-					// Initialize the display logic for Redirect URI
-					function UpdateSsoRedirectUri() {
-						var domainInput = document.getElementById('sso-app-domain');
-						var displayEl = document.getElementById('sso-redirect-uri-display');
-						if (domainInput && displayEl) {
-							var domain = domainInput.value.trim();
-							if (!domain) {
-								// Prefill with current origin if empty
-								domain = window.location.origin;
-								domainInput.value = domain;
-							}
-							domain = domain.replace(/\\/+$/, ''); // remove trailing slash
-							displayEl.innerText = domain + '/sso/callback';
-						}
-					}
-					// Run once immediately
-					setTimeout(UpdateSsoRedirectUri, 50);
-				</script>
 			`;
+
+			// Initialize the display logic for Redirect URI directly
+			window.UpdateSsoRedirectUri = function() {
+				var domainInput = document.getElementById('sso-app-domain');
+				var displayEl = document.getElementById('sso-redirect-uri-display');
+				if (domainInput && displayEl) {
+					var domain = domainInput.value.trim();
+					if (!domain) {
+						// Prefill with current origin if empty
+						domain = window.location.origin;
+						domainInput.value = domain;
+					}
+					domain = domain.replace(/\/+$/, ''); // remove trailing slash
+					displayEl.innerText = domain + '/sso/callback';
+				}
+			};
+			setTimeout(window.UpdateSsoRedirectUri, 50);
 		});
 		break;
 	}
@@ -727,6 +758,8 @@ function SaveSsoConfig() {
 	var data = {
 		enabled: document.getElementById('sso-enabled').checked,
 		disable_classic_login: document.getElementById('sso-disable-classic').checked,
+		auto_create_accounts: document.getElementById('sso-auto-create').checked,
+		default_group_id: document.getElementById('sso-default-group').value,
 		provider_name: document.getElementById('sso-provider-name').value,
 		client_id: document.getElementById('sso-client-id').value,
 		client_secret: document.getElementById('sso-client-secret').value,

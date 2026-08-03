@@ -948,17 +948,24 @@ def api_admin_sso_get():
 	if not Permissions.check_permission(current_user.id, Permissions.ADMIN_PANEL):
 		return jsonify({"success": False, "error": "Unauthorized"}), 403
 	from models.sso import SsoConfig
+	from models.user import Group
 	config = SsoConfig.query.first()
+	groups = [{"id": g.id, "display_name": g.display_name} for g in Group.query.all()]
+	
 	if not config:
 		return jsonify({"success": True, "sso": {
 			"enabled": False, "disable_classic_login": False,
 			"provider_name": "", "client_id": "", "client_secret": "",
 			"issuer_url": "", "authorization_endpoint": "",
 			"token_endpoint": "", "userinfo_endpoint": "",
-			"redirect_uri": "", "scopes": "openid profile email"}})
+			"redirect_uri": "", "scopes": "openid profile email",
+			"auto_create_accounts": False, "default_group_id": ""},
+			"groups": groups})
 	return jsonify({"success": True, "sso": {
 		"enabled": config.enabled,
 		"disable_classic_login": config.disable_classic_login,
+		"auto_create_accounts": config.auto_create_accounts,
+		"default_group_id": config.default_group_id or "",
 		"provider_name": config.provider_name or "",
 		"client_id": config.client_id or "",
 		"client_secret": "****" if config.client_secret else "",
@@ -967,7 +974,8 @@ def api_admin_sso_get():
 		"token_endpoint": config.token_endpoint or "",
 		"userinfo_endpoint": config.userinfo_endpoint or "",
 		"redirect_uri": config.redirect_uri or "",
-		"scopes": config.scopes or "openid profile email"}})
+		"scopes": config.scopes or "openid profile email"},
+		"groups": groups})
 
 @admin_bp.route('/sso', methods=['POST'])
 @login_required
@@ -983,6 +991,8 @@ def api_admin_sso_save():
 	data = request.json
 	config.enabled = bool(data.get("enabled", False))
 	config.disable_classic_login = bool(data.get("disable_classic_login", False))
+	config.auto_create_accounts = bool(data.get("auto_create_accounts", False))
+	config.default_group_id = data.get("default_group_id") or None
 	config.provider_name = data.get("provider_name") or None
 	config.client_id = data.get("client_id") or None
 	config.issuer_url = data.get("issuer_url") or None
