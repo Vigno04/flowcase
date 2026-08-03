@@ -13,6 +13,7 @@ services:
       - FLASK_DEBUG=${FLASK_DEBUG:-0}
       - NGINX_CONTAINER_NAME=${NGINX_CONTAINER_NAME:-flowcase-nginx}
       - FLOWCASE_NETWORK=${FLOWCASE_NETWORK:-flowcase_default_network}
+      - WEB_CONTAINER_NAME=${WEB_CONTAINER_NAME:-flowcase}
     networks:
       - default_network
     command: python run.py

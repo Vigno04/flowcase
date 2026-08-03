@@ -78,10 +78,38 @@ def create_default_registry():
 		db.session.add(flowcase_registry)
 		db.session.commit()
 
+def update_nginx_config():
+	"""Update the Nginx default.conf to route to the correct web container name"""
+	try:
+		import re
+		web_container_name = os.environ.get("WEB_CONTAINER_NAME", "flowcase")
+		config_path = "/flowcase/nginx/default.conf"
+		
+		if os.path.exists(config_path):
+			with open(config_path, "r") as f:
+				config = f.read()
+				
+			# Replace any existing proxy_pass targeting the web container on port 5000
+			config = re.sub(
+				r'proxy_pass http://[a-zA-Z0-9_-]+:5000/;',
+				f'proxy_pass http://{web_container_name}:5000/;',
+				config
+			)
+			
+			with open(config_path, "w") as f:
+				f.write(config)
+			
+			log("INFO", f"Updated Nginx configuration to route to {web_container_name}:5000")
+	except Exception as e:
+		log("ERROR", f"Failed to update Nginx configuration: {str(e)}")
+
 def initialize_app(app):
 	"""Initialize the application for first run"""
 	with app.app_context():
 		log("INFO", "Initializing Flowcase...")
+		
+		# Always update Nginx config on startup to ensure it matches the current environment
+		update_nginx_config()
 		
 		os.makedirs("data", exist_ok=True)
 		
