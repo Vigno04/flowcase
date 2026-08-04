@@ -472,7 +472,7 @@ function AdminChangeTab(tab, element = null)
 			
 			content.innerHTML = `
 			<div style="margin-bottom: 20px;">
-				<button class="button-1-full" onclick="PullAllImages()">Update All</button>
+				<button class="button-1-full" onclick="PullAllImages(this)">Update All</button>
 				<button class="button-1" onclick="ShowImageLogs()" style="margin-left: 10px;">View Logs</button>
 			</div>
 			<div id="images-content" style="width: inherit;">
@@ -2224,10 +2224,26 @@ function PullSingleImage(dropletId)
 	console.log("Pulling image for droplet:", dropletId);
 }
 
-function PullAllImages()
+function PullAllImages(btn)
 {
 	if (!confirm("This will download all missing Docker images. This may take a long time and use significant bandwidth. Continue?")) {
 		return;
+	}
+	
+	if (btn) {
+		btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+		btn.disabled = true;
+	}
+
+	// Set all current images to downloading status in UI to give immediate feedback
+	if (typeof currentImagesStatus !== 'undefined' && currentImagesStatus !== null) {
+		Object.keys(currentImagesStatus).forEach(dropletId => {
+			currentImagesStatus[dropletId].download_status = 'downloading';
+			if (currentImagesStatus[dropletId].download_progress === undefined) {
+				currentImagesStatus[dropletId].download_progress = 0;
+			}
+		});
+		UpdateImageStatusDisplay(currentImagesStatus);
 	}
 	
 	var url = "/api/admin/images/pull-all";
