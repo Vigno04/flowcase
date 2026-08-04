@@ -697,6 +697,40 @@
             modal.classList.remove('active');
         }
 
+        // Add keyboard interaction for Enter key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                // Main droplet launch modal
+                const modal = document.getElementById('modal');
+                if (modal && modal.classList.contains('active')) {
+                    const acceptBtn = document.getElementById('model-accept');
+                    if (acceptBtn && !acceptBtn.disabled) {
+                        acceptBtn.click();
+                        event.preventDefault();
+                        return;
+                    }
+                }
+                
+                // For other modals (admin, profile), if an input is focused, trigger the nearest save button
+                if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
+                    const container = event.target.closest('.profile-panel') || event.target.closest('.admin-modal-main-content');
+                    if (container) {
+                        const saveBtns = container.querySelectorAll('button.button-1-full');
+                        if (saveBtns.length === 1 && !saveBtns[0].disabled) {
+                            saveBtns[0].click();
+                            event.preventDefault();
+                        } else if (saveBtns.length > 1) {
+                            const saveBtn = Array.from(saveBtns).find(b => b.innerText.toLowerCase().includes('save') || b.innerText.toLowerCase().includes('create') || b.innerText.toLowerCase().includes('add') || b.innerText.toLowerCase().includes('change'));
+                            if (saveBtn && !saveBtn.disabled) {
+                                saveBtn.click();
+                                event.preventDefault();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         // Close dropdowns when clicking outside
         document.addEventListener('click', function(e) {
             document.querySelectorAll('.instance-dropdown').forEach(d => {
