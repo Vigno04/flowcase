@@ -324,6 +324,13 @@ def api_admin_delete_droplet():
 				container.remove(force=True)
 			except Exception as e:
 				pass  # Container might not exist
+			
+			if instance.snapshot_image_name:
+				try:
+					utils.docker.docker_client.images.remove(instance.snapshot_image_name, force=True)
+				except Exception:
+					pass
+					
 			db.session.delete(instance)
 			db.session.commit()
 			
@@ -357,6 +364,12 @@ def api_admin_delete_instance():
 			container.remove(force=True)
 		except Exception as e:
 			pass  # Container might not exist
+			
+		if instance.snapshot_image_name:
+			try:
+				utils.docker.docker_client.images.remove(instance.snapshot_image_name, force=True)
+			except Exception:
+				pass
 	
 	db.session.delete(instance)
 	db.session.commit()
@@ -457,6 +470,13 @@ def api_admin_delete_user():
 				container.remove(force=True)
 			except Exception as e:
 				pass  # Container might not exist
+				
+			if instance.snapshot_image_name:
+				try:
+					utils.docker.docker_client.images.remove(instance.snapshot_image_name, force=True)
+				except Exception:
+					pass
+					
 			db.session.delete(instance)
 			db.session.commit()
 	else:
