@@ -472,8 +472,7 @@ function AdminChangeTab(tab, element = null)
 			
 			content.innerHTML = `
 			<div style="margin-bottom: 20px;">
-				<button class="button-1-full" onclick="PullAllImages()">Download All Images</button>
-				<button class="button-1" onclick="RefreshImageStatus()" style="margin-left: 10px;">Refresh Status</button>
+				<button class="button-1-full" onclick="PullAllImages()">Update All</button>
 				<button class="button-1" onclick="ShowImageLogs()" style="margin-left: 10px;">View Logs</button>
 			</div>
 			<div id="images-content" style="width: inherit;">
