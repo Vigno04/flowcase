@@ -1932,7 +1932,7 @@ function AdminDeleteDroplet(droplet_id)
 				CreateNotification("Droplet deleted successfully.", "success");
 				//Update droplets
 				FetchAdminDroplets(function(json) {
-					AdminChangeTab('droplets');
+					AdminChangeTab(currentTab || 'droplets');
 				});
 
 				GetDroplets();
@@ -2162,10 +2162,26 @@ function ShowDockerImageInfo(dropletId) {
 function PullSingleImage(dropletId)
 {
 	// Show loading state
-	var button = event.target;
-	var originalText = button.textContent;
-	button.textContent = "Downloading...";
-	button.disabled = true;
+	var element = event.target;
+	
+	// Find the actual button or action icon that was clicked
+	if (element.tagName === 'I' && element.parentElement.tagName === 'BUTTON') {
+		element = element.parentElement;
+	}
+	
+	var originalContent = "";
+	if (element.tagName === 'I') {
+		originalContent = element.className;
+		element.className = "fas fa-spinner fa-spin";
+		element.style.color = "#007bff";
+		element.style.cursor = "not-allowed";
+		element.title = "Downloading...";
+		element.onclick = null; // disable clicking again
+	} else {
+		originalContent = element.innerHTML;
+		element.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...';
+		element.disabled = true;
+	}
 	
 	var url = "/api/admin/images/pull";
 	var xhr = new XMLHttpRequest();
@@ -2190,8 +2206,16 @@ function PullSingleImage(dropletId)
 				console.error("Image Pull Error:", json);
 				CreateNotification(String(errorMsg), "error");
 				// Reset button state on error
-				button.textContent = originalText;
-				button.disabled = false;
+				if (element.tagName === 'I') {
+					element.className = originalContent;
+					element.style.color = "#ffc107";
+					element.style.cursor = "pointer";
+					element.title = "Repull Image";
+					element.onclick = function() { PullSingleImage(dropletId); };
+				} else {
+					element.innerHTML = originalContent;
+					element.disabled = false;
+				}
 			}
 		}
 	};
