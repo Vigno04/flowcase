@@ -316,48 +316,23 @@ def request_new_instance():
 	else:
 		resolution = "1280x720"
   
-	# Persistent Profile using Docker volumes
-	volume_mount = None
-	if droplet.container_persistent_profile_path and droplet.container_persistent_profile_path != "" and not isGuacDroplet:
-		
-		# Generate volume name based on user, droplet, and path
-		volume_name_template = droplet.container_persistent_profile_path
-		
-		# Replace variables for volume name
-		volume_name = volume_name_template.replace("{user_id}", str(current_user.id))
-		volume_name = volume_name.replace("{user_name}", current_user.username)
-		volume_name = volume_name.replace("{droplet_id}", str(droplet_id))
-		volume_name = volume_name.replace("{droplet_name}", droplet.display_name)
-		
-		# Create a safe volume name (Docker volume names have restrictions)
-		volume_name = re.sub(r'[^a-zA-Z0-9._-]', '_', volume_name)
-		volume_name = f"flowcase_profile_{volume_name}"
-		
-		# Mount to user's Shared directory in container to keep OS separate from shared files
-		container_path = "/home/flowcase-user/Shared"
-		
+	# List of mounts
+	mounts = []
+
+	# Universal Shared Folder for the user
+	if not isGuacDroplet:
+		shared_volume_name = f"flowcase_shared_{current_user.id}"
 		try:
-			# Check if volume exists, create if not
-			try:
-				utils.docker.docker_client.volumes.get(volume_name)
-				log("INFO", f"Using existing Docker volume: {volume_name}")
-			except docker.errors.NotFound:
-				# Volume doesn't exist, create it
-				volume = utils.docker.docker_client.volumes.create(name=volume_name)
-				log("INFO", f"Created new Docker volume: {volume_name}")
+			utils.docker.docker_client.volumes.get(shared_volume_name)
+		except docker.errors.NotFound:
+			utils.docker.docker_client.volumes.create(name=shared_volume_name)
 			
-			# Create mount configuration for Docker volume
-			volume_mount = docker.types.Mount(
-				target=container_path,
-				source=volume_name,
-				type="volume"
-			)
-			
-		except Exception as e:
-			log("ERROR", f"Error setting up Docker volume {volume_name}: {str(e)}")
-			db.session.delete(instance)
-			db.session.commit()
-			return jsonify({"success": False, "error": "Failed to setup persistent profile volume"}), 500
+		shared_mount = docker.types.Mount(
+			target="/home/flowcase-user/Shared",
+			source=shared_volume_name,
+			type="volume"
+		)
+		mounts.append(shared_mount)
 	
 	# Create the container
 	try:
@@ -375,7 +350,7 @@ def request_new_instance():
 				network=network,
 				mem_limit=f"{droplet.container_memory}000000",
 				cpu_shares=int(droplet.container_cores * 1024),
-				mounts=[volume_mount] if volume_mount else None,
+				mounts=mounts if mounts else None,
 			)
 		else: # Guacamole droplet
 			container = utils.docker.docker_client.containers.run(
@@ -918,28 +893,21 @@ def resume_instance(instance_id: str):
 	# The rest of the container launch logic is similar to request_new_instance but without volume mounts
 	resolution = "1280x720" # We might want to save this, but for now default
 
-	# We explicitly do NOT mount the volume for resumed instances because they might have been saved without it, or it was mounted to /Shared.
-	# Let's mount it to /Shared just like request_new_instance.
-	volume_mount = None
-	if droplet.container_persistent_profile_path and droplet.container_persistent_profile_path != "":
-		volume_name_template = droplet.container_persistent_profile_path
-		volume_name = volume_name_template.replace("{user_id}", str(current_user.id))
-		volume_name = volume_name.replace("{user_name}", current_user.username)
-		volume_name = volume_name.replace("{droplet_id}", str(droplet.id))
-		volume_name = volume_name.replace("{droplet_name}", droplet.display_name)
-		volume_name = re.sub(r'[^a-zA-Z0-9._-]', '_', volume_name)
-		volume_name = f"flowcase_profile_{volume_name}"
+	mounts = []
+
+	# Universal Shared Folder for the user
+	shared_volume_name = f"flowcase_shared_{current_user.id}"
+	try:
+		utils.docker.docker_client.volumes.get(shared_volume_name)
+	except docker.errors.NotFound:
+		utils.docker.docker_client.volumes.create(name=shared_volume_name)
 		
-		try:
-			utils.docker.docker_client.volumes.get(volume_name)
-		except docker.errors.NotFound:
-			utils.docker.docker_client.volumes.create(name=volume_name)
-			
-		volume_mount = docker.types.Mount(
-			target="/home/flowcase-user/Shared",
-			source=volume_name,
-			type="volume"
-		)
+	shared_mount = docker.types.Mount(
+		target="/home/flowcase-user/Shared",
+		source=shared_volume_name,
+		type="volume"
+	)
+	mounts.append(shared_mount)
 
 	try:
 		network = utils.docker.get_network_for_droplet(droplet)
@@ -953,7 +921,7 @@ def resume_instance(instance_id: str):
 			network=network,
 			mem_limit=f"{droplet.container_memory}000000",
 			cpu_shares=int(droplet.container_cores * 1024),
-			mounts=[volume_mount] if volume_mount else None,
+			mounts=mounts if mounts else None,
 		)
 		
 		default_network_name = os.environ.get("FLOWCASE_NETWORK", "flowcase_default_network")

@@ -31,6 +31,15 @@ except sqlite3.OperationalError as e:
     else:
         print(f"❌ Error updating user: {e}")
 
+try:
+    cur.execute("ALTER TABLE droplet DROP COLUMN container_persistent_profile_path")
+    print("✅ Removed 'container_persistent_profile_path' column from 'droplet' table.")
+except sqlite3.OperationalError as e:
+    if "no such column" in str(e).lower() or "near \"drop\"" in str(e).lower():
+        print("ℹ️ Column 'container_persistent_profile_path' already removed or your SQLite version does not support DROP COLUMN (which is fine).")
+    else:
+        print(f"❌ Error updating droplet: {e}")
+
 conn.commit()
 conn.close()
 print("Database update complete! You can now restart Flowcase to test.")

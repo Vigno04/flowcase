@@ -177,7 +177,6 @@ def api_admin_droplets():
 			"container_docker_registry": droplet.container_docker_registry,
 			"container_cores": droplet.container_cores,
 			"container_memory": droplet.container_memory,
-			"container_persistent_profile_path": droplet.container_persistent_profile_path,
 			"container_network": droplet.container_network,
 			"server_ip": droplet.server_ip,
 			"server_port": droplet.server_port,
@@ -256,11 +255,7 @@ def api_admin_edit_droplet():
 			return jsonify({"success": False, "error": "Cores cannot be negative"}), 400
 		if droplet.container_memory < 0:
 			return jsonify({"success": False, "error": "Memory cannot be negative"}), 400
-
-		droplet.container_persistent_profile_path = request.json.get('container_persistent_profile_path')
-		if not droplet.container_persistent_profile_path:
-			droplet.container_persistent_profile_path = None
-			
+		droplet.container_memory = request.json.get('container_memory')
 		droplet.container_network = request.json.get('container_network')
 		if not droplet.container_network:
 			droplet.container_network = None

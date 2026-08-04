@@ -1751,11 +1751,6 @@ function ShowEditDroplet(instance_id = null)
 		</div>
 
 		<div class="admin-modal-card">
-			<p>Persistant Profile Path</p>
-			<input type="text" id="admin-edit-droplet-persistent-profile" value="${ droplet != null ? droplet.container_persistent_profile_path ? droplet.container_persistent_profile_path : "" : "" }">
-		</div>
-
-		<div class="admin-modal-card">
 			<p>Docker Network</p>
 			<select id="admin-edit-droplet-network">
 				<option value="">Default Network (flowcase_default_network)</option>
@@ -1908,7 +1903,6 @@ function SaveDroplet(droplet_id = null)
 		"container_docker_image": document.getElementById('admin-edit-droplet-docker-image').value,
 		"container_cores": document.getElementById('admin-edit-droplet-cores').value,
 		"container_memory": document.getElementById('admin-edit-droplet-memory').value,
-		"container_persistent_profile_path": document.getElementById('admin-edit-droplet-persistent-profile').value,
 		"container_network": document.getElementById('admin-edit-droplet-network').value,
 		"server_ip": document.getElementById('admin-edit-droplet-ip-address').value,
 		"server_port": document.getElementById('admin-edit-droplet-port').value,
@@ -2518,7 +2512,6 @@ window.QuickAddDropletRegistry = function(display_name, description, image_path,
 		"container_docker_image": container_docker_image + ":" + selected_tag,
 		"container_cores": 2,
 		"container_memory": 2768,
-		"container_persistent_profile_path": "",
 		"container_network": "flowcase_default_network",
 		"server_ip": "",
 		"server_port": 22,
