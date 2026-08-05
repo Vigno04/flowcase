@@ -1053,18 +1053,67 @@ def api_admin_stats():
 	if not Permissions.check_permission(current_user.id, Permissions.ADMIN_PANEL):
 		return jsonify({"success": False, "error": "Unauthorized"}), 403
 		
+	import concurrent.futures
+	
 	cpu_usage = psutil.cpu_percent(interval=0.1)
 	mem = psutil.virtual_memory()
 	disk = psutil.disk_usage('/')
 	
 	try:
-		containers = utils.docker.docker_client.containers.list()
+		containers = utils.docker.docker_client.containers.list(all=True)
+		flowcase_containers = [c for c in containers if 'flowcase' in c.name]
+		running_flowcase_containers = [c for c in flowcase_containers if c.status == 'running']
 		docker_stats = {
-			"total_containers": len(containers),
-			"running_containers": len([c for c in containers if c.status == 'running'])
+			"total_containers": len(flowcase_containers),
+			"running_containers": len(running_flowcase_containers)
 		}
+		
+		flowcase_disk_used = 0
+		try:
+			df = utils.docker.docker_client.api.df()
+			for c in df.get('Containers', []):
+				if any('flowcase' in name for name in c.get('Names', [])):
+					flowcase_disk_used += c.get('SizeRw', 0)
+			for img in df.get('Images', []):
+				if img.get('RepoTags') and any('flowcase' in tag or 'vigno04' in tag for tag in img.get('RepoTags', [])):
+					flowcase_disk_used += img.get('Size', 0)
+			for vol in df.get('Volumes', []):
+				if 'flowcase' in vol.get('Name', ''):
+					flowcase_disk_used += vol.get('UsageData', {}).get('Size', 0)
+		except:
+			pass
+			
+		flowcase_memory_used = 0
+		flowcase_cpu_percent = 0.0
+		
+		def get_container_stats(c):
+			try:
+				return c.stats(stream=False)
+			except:
+				return None
+
+		with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+			results = list(executor.map(get_container_stats, running_flowcase_containers))
+			
+		for stats in results:
+			if not stats: continue
+			mem_usage = stats.get('memory_stats', {}).get('usage', 0)
+			mem_cache = stats.get('memory_stats', {}).get('stats', {}).get('cache', 0)
+			flowcase_memory_used += max(0, mem_usage - mem_cache)
+			
+			cpu_stats = stats.get('cpu_stats', {})
+			precpu_stats = stats.get('precpu_stats', {})
+			cpu_delta = cpu_stats.get('cpu_usage', {}).get('total_usage', 0) - precpu_stats.get('cpu_usage', {}).get('total_usage', 0)
+			system_delta = cpu_stats.get('system_cpu_usage', 0) - precpu_stats.get('system_cpu_usage', 0)
+			if system_delta > 0 and cpu_delta > 0:
+				online_cpus = cpu_stats.get('online_cpus', len(cpu_stats.get('cpu_usage', {}).get('percpu_usage', [1])))
+				flowcase_cpu_percent += (cpu_delta / system_delta) * online_cpus * 100.0
+
 	except:
 		docker_stats = {"total_containers": 0, "running_containers": 0}
+		flowcase_disk_used = 0
+		flowcase_memory_used = 0
+		flowcase_cpu_percent = 0.0
 		
 	return jsonify({
 		"success": True,
@@ -1078,6 +1127,11 @@ def api_admin_stats():
 			"total": disk.total,
 			"used": disk.used,
 			"percent": disk.percent
+		},
+		"flowcase": {
+			"disk_used": flowcase_disk_used,
+			"memory_used": flowcase_memory_used,
+			"cpu_percent": round(flowcase_cpu_percent, 1)
 		},
 		"docker": docker_stats
 	})

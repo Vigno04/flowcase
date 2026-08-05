@@ -767,28 +767,58 @@ function AdminChangeTab(tab, element = null)
 							<div class="admin-modal-card" style="flex:1; min-width:250px;">
 								<p>CPU Usage</p>
 								<h2 style="margin:10px 0;">${json.cpu}%</h2>
-								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px;">
-									<div style="width:${json.cpu}%; background:#4f8ef7; height:100%; border-radius:4px;"></div>
+								${json.flowcase && json.flowcase.cpu_percent !== undefined ? `
+								<p style="font-size:12px; color:var(--primary-color);">
+									Flowcase: ${json.flowcase.cpu_percent}%
+								</p>
+								` : ''}
+								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
+									${json.flowcase && json.flowcase.cpu_percent !== undefined ? `
+									<div style="width:${json.flowcase.cpu_percent}%; background:var(--primary-color); height:100%;"></div>
+									<div style="width:${Math.max(0, json.cpu - json.flowcase.cpu_percent)}%; background:#4f8ef7; height:100%;"></div>
+									` : `
+									<div style="width:${json.cpu}%; background:#4f8ef7; height:100%;"></div>
+									`}
 								</div>
 							</div>
 							<div class="admin-modal-card" style="flex:1; min-width:250px;">
 								<p>Memory Usage</p>
 								<h2 style="margin:10px 0;">${json.memory.percent}%</h2>
-								<p style="font-size:12px; color:var(--text-color-gray);">
-									${(json.memory.used/1024/1024/1024).toFixed(1)} GB / ${(json.memory.total/1024/1024/1024).toFixed(1)} GB
+								<p style="font-size:12px; color:var(--text-color-gray); margin-bottom: 5px;">
+									${(json.memory.used/1024/1024/1024).toFixed(1)} GB / ${(json.memory.total/1024/1024/1024).toFixed(1)} GB Total
 								</p>
-								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px;">
-									<div style="width:${json.memory.percent}%; background:#28a745; height:100%; border-radius:4px;"></div>
+								${json.flowcase && json.flowcase.memory_used !== undefined ? `
+								<p style="font-size:12px; color:var(--primary-color);">
+									Flowcase: ${(json.flowcase.memory_used/1024/1024/1024).toFixed(1)} GB
+								</p>
+								` : ''}
+								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
+									${json.flowcase && json.flowcase.memory_used !== undefined ? `
+									<div style="width:${(json.flowcase.memory_used / json.memory.total) * 100}%; background:var(--primary-color); height:100%;"></div>
+									<div style="width:${Math.max(0, json.memory.percent - ((json.flowcase.memory_used / json.memory.total) * 100))}%; background:#28a745; height:100%;"></div>
+									` : `
+									<div style="width:${json.memory.percent}%; background:#28a745; height:100%;"></div>
+									`}
 								</div>
 							</div>
 							<div class="admin-modal-card" style="flex:1; min-width:250px;">
 								<p>Disk Usage</p>
 								<h2 style="margin:10px 0;">${json.disk.percent}%</h2>
-								<p style="font-size:12px; color:var(--text-color-gray);">
-									${(json.disk.used/1024/1024/1024).toFixed(1)} GB / ${(json.disk.total/1024/1024/1024).toFixed(1)} GB
+								<p style="font-size:12px; color:var(--text-color-gray); margin-bottom: 5px;">
+									${(json.disk.used/1024/1024/1024).toFixed(1)} GB / ${(json.disk.total/1024/1024/1024).toFixed(1)} GB Total
 								</p>
-								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px;">
-									<div style="width:${json.disk.percent}%; background:#ffc107; height:100%; border-radius:4px;"></div>
+								${json.flowcase.disk_used ? `
+								<p style="font-size:12px; color:var(--primary-color);">
+									Flowcase: ${(json.flowcase.disk_used/1024/1024/1024).toFixed(1)} GB
+								</p>
+								` : ''}
+								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
+									${json.flowcase.disk_used ? `
+									<div style="width:${(json.flowcase.disk_used / json.disk.total) * 100}%; background:var(--primary-color); height:100%;"></div>
+									<div style="width:${json.disk.percent - ((json.flowcase.disk_used / json.disk.total) * 100)}%; background:#ffc107; height:100%;"></div>
+									` : `
+									<div style="width:${json.disk.percent}%; background:#ffc107; height:100%;"></div>
+									`}
 								</div>
 							</div>
 							<div class="admin-modal-card" style="flex:1; min-width:250px;">
