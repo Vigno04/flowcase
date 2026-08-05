@@ -2230,7 +2230,9 @@ function PullAllImages(btn)
 		return;
 	}
 	
+	var originalContent = "";
 	if (btn) {
+		originalContent = btn.innerHTML;
 		btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
 		btn.disabled = true;
 	}
@@ -2239,9 +2241,7 @@ function PullAllImages(btn)
 	if (typeof currentImagesStatus !== 'undefined' && currentImagesStatus !== null) {
 		Object.keys(currentImagesStatus).forEach(dropletId => {
 			currentImagesStatus[dropletId].download_status = 'downloading';
-			if (currentImagesStatus[dropletId].download_progress === undefined) {
-				currentImagesStatus[dropletId].download_progress = 0;
-			}
+			currentImagesStatus[dropletId].download_progress = 0;
 		});
 		UpdateImageStatusDisplay(currentImagesStatus);
 	}
@@ -2252,6 +2252,11 @@ function PullAllImages(btn)
 	xhr.setRequestHeader("Content-Type", "application/json");
 	xhr.onreadystatechange = function () {
 		if (xhr.readyState === 4) {
+			if (btn) {
+				btn.innerHTML = originalContent;
+				btn.disabled = false;
+			}
+
 			var json = JSON.parse(xhr.responseText);
 			if (json["success"] == true) {
 				CreateNotification(json["message"], "success");
