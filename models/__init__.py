@@ -3,3 +3,4 @@ from models.droplet import Droplet, DropletInstance
 from models.registry import Registry
 from models.log import Log 
 from models.sso import SsoConfig
+from models.setting import SystemSetting

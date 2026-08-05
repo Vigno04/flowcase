@@ -65,3 +65,6 @@ def initialize_database_and_setup():
 	from utils.setup import initialize_app
 	from flask import current_app
 	initialize_app(current_app) 
+
+	from utils.scheduler import start_scheduler
+	start_scheduler(current_app)

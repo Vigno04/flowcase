@@ -1023,3 +1023,107 @@ def api_admin_sso_save():
 		config.client_secret = new_secret
 	db.session.commit()
 	return jsonify({"success": True, "message": "SSO configuration saved."})
+
+from models.setting import SystemSetting
+import psutil
+
+@admin_bp.route('/settings', methods=['GET', 'POST'])
+@login_required
+def api_admin_settings():
+	if not Permissions.check_permission(current_user.id, Permissions.ADMIN_PANEL):
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+	
+	if request.method == 'GET':
+		settings = {
+			"prune_frequency": SystemSetting.get('prune_frequency', 'never'),
+			"auto_shutdown_enabled": SystemSetting.get('auto_shutdown_enabled', 'false') == 'true',
+			"idle_timeout_mins": int(SystemSetting.get('idle_timeout_mins', '30'))
+		}
+		return jsonify({"success": True, "settings": settings})
+	elif request.method == 'POST':
+		data = request.json
+		SystemSetting.set('prune_frequency', data.get('prune_frequency', 'never'))
+		SystemSetting.set('auto_shutdown_enabled', 'true' if data.get('auto_shutdown_enabled') else 'false')
+		SystemSetting.set('idle_timeout_mins', data.get('idle_timeout_mins', 30))
+		return jsonify({"success": True, "message": "Settings saved."})
+
+@admin_bp.route('/stats', methods=['GET'])
+@login_required
+def api_admin_stats():
+	if not Permissions.check_permission(current_user.id, Permissions.ADMIN_PANEL):
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+		
+	cpu_usage = psutil.cpu_percent(interval=0.1)
+	mem = psutil.virtual_memory()
+	disk = psutil.disk_usage('/')
+	
+	try:
+		containers = utils.docker.docker_client.containers.list()
+		docker_stats = {
+			"total_containers": len(containers),
+			"running_containers": len([c for c in containers if c.status == 'running'])
+		}
+	except:
+		docker_stats = {"total_containers": 0, "running_containers": 0}
+		
+	return jsonify({
+		"success": True,
+		"cpu": cpu_usage,
+		"memory": {
+			"total": mem.total,
+			"used": mem.used,
+			"percent": mem.percent
+		},
+		"disk": {
+			"total": disk.total,
+			"used": disk.used,
+			"percent": disk.percent
+		},
+		"docker": docker_stats
+	})
+
+@admin_bp.route('/bulk_delete', methods=['POST'])
+@login_required
+def api_admin_bulk_delete():
+	if not Permissions.check_permission(current_user.id, Permissions.ADMIN_PANEL):
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+		
+	data = request.json
+	item_type = data.get('type')
+	ids = data.get('ids', [])
+	
+	if not ids:
+		return jsonify({"success": False, "error": "No items selected."})
+		
+	count = 0
+	if item_type == 'users':
+		for uid in ids:
+			user = User.query.get(uid)
+			if user and not user.protected:
+				db.session.delete(user)
+				count += 1
+		db.session.commit()
+	elif item_type == 'droplets':
+		for did in ids:
+			droplet = Droplet.query.get(did)
+			if droplet:
+				db.session.delete(droplet)
+				count += 1
+		db.session.commit()
+	elif item_type == 'instances':
+		for iid in ids:
+			instance = DropletInstance.query.get(iid)
+			if instance:
+				try:
+					if utils.docker.docker_client:
+						container = utils.docker.docker_client.containers.get(f"flowcase_{instance.id}")
+						container.remove(force=True)
+				except:
+					pass
+				db.session.delete(instance)
+				count += 1
+		db.session.commit()
+	else:
+		return jsonify({"success": False, "error": "Invalid item type."})
+		
+	return jsonify({"success": True, "message": f"Successfully deleted {count} items."})

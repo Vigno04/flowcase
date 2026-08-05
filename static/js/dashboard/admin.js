@@ -155,7 +155,10 @@ function AdminChangeTab(tab, element = null)
 
 				if (userInfo.permissions.perm_edit_users) {	
 					content.innerHTML += `
-						<button class="button-1-full" onclick="ShowEditUser()">Create User</button>
+						<div style="display: flex; gap: 10px; margin-bottom: 10px;">
+							<button class="button-1-full" onclick="ShowEditUser()">Create User</button>
+							<button class="button-1" style="background:#e05454;" onclick="BulkDelete('users')">Delete Selected</button>
+						</div>
 						<hr>
 					`;
 				}
@@ -163,6 +166,7 @@ function AdminChangeTab(tab, element = null)
 				content.innerHTML += `
 					<table class="admin-modal-table">
 						<tr>
+							${userInfo.permissions.perm_edit_users ? `<th style="width: 40px; text-align: center;"><input type="checkbox" onclick="document.querySelectorAll('.bulk-checkbox-users').forEach(cb => cb.checked = this.checked)"></th>` : ''}
 							<th>Username</th>
 							<th>User Type</th>
 							<th>Groups</th>
@@ -170,6 +174,7 @@ function AdminChangeTab(tab, element = null)
 						</tr>
 					${json["users"].map(user => `
 						<tr>
+							${userInfo.permissions.perm_edit_users ? `<td style="text-align: center;">${!user.protected ? `<input type="checkbox" class="bulk-checkbox-users" value="${user.id}">` : ''}</td>` : ''}
 							<td>${user.username}</td>
 							<td>${user.usertype}</td>
 							<td>${user.groups.map(group => {return group.display_name}).join(', ')}</td>
@@ -196,12 +201,16 @@ function AdminChangeTab(tab, element = null)
 				FetchAdminDroplets(function(json) {
 				content.innerHTML = `
 					${userInfo.permissions.perm_edit_droplets ? `
-						<button class="button-1-full" onclick="ShowEditDroplet()">Create Droplet</button>
+						<div style="display: flex; gap: 10px; margin-bottom: 10px;">
+							<button class="button-1-full" onclick="ShowEditDroplet()">Create Droplet</button>
+							<button class="button-1" style="background:#e05454;" onclick="BulkDelete('droplets')">Delete Selected</button>
+						</div>
 						<hr>
 					` : ''}
 
 				<table class="admin-modal-table">
 					<tr>
+						${userInfo.permissions.perm_edit_droplets ? `<th style="width: 40px; text-align: center;"><input type="checkbox" onclick="document.querySelectorAll('.bulk-checkbox-droplets').forEach(cb => cb.checked = this.checked)"></th>` : ''}
 						<th>Name</th>
 						<th>Image / IP</th>
 						<th>Groups</th>
@@ -210,6 +219,7 @@ function AdminChangeTab(tab, element = null)
 					</tr>
 					${json["droplets"].map(droplet => `
 						<tr>
+							${userInfo.permissions.perm_edit_droplets ? `<td style="text-align: center;"><input type="checkbox" class="bulk-checkbox-droplets" value="${droplet.id}"></td>` : ''}
 							<td><div><img src="${droplet.image_path ? droplet.image_path : '/static/img/droplet_default.jpg'}"><p>${droplet.display_name}</p></div></td>
 							<td>${droplet.droplet_type == "container" ? droplet.container_docker_image : droplet.server_ip}</td>
 							<td>${displayRestrictedGroups(droplet.restricted_groups)}</td>
@@ -335,8 +345,14 @@ function AdminChangeTab(tab, element = null)
 
 			FetchAdminInstances(function(json) {
 				content.innerHTML = `
+					${userInfo.permissions.perm_edit_instances ? `
+						<div style="display: flex; gap: 10px; margin-bottom: 10px;">
+							<button class="button-1" style="background:#e05454;" onclick="BulkDelete('instances')">Delete Selected</button>
+						</div>
+					` : ''}
 				<table class="admin-modal-table">
 					<tr>
+						${userInfo.permissions.perm_edit_instances ? `<th style="width: 40px; text-align: center;"><input type="checkbox" onclick="document.querySelectorAll('.bulk-checkbox-instances').forEach(cb => cb.checked = this.checked)"></th>` : ''}
 						<th>Name</th>
 						<th>Username</th>
 						<th>Creation Time</th>
@@ -345,6 +361,7 @@ function AdminChangeTab(tab, element = null)
 					</tr>
 					${json["instances"].map(instance => `
 						<tr>
+							${userInfo.permissions.perm_edit_instances ? `<td style="text-align: center;"><input type="checkbox" class="bulk-checkbox-instances" value="${instance.id}"></td>` : ''}
 							<td><div><img src="${instance.droplet.image_path ? instance.droplet.image_path : '/static/img/droplet_default.jpg'}"><p>${instance.droplet.display_name}</p></div></td>
 							<td>${instance.user.username}</td>
 							<td>${instance.created_at}</td>
@@ -471,9 +488,10 @@ function AdminChangeTab(tab, element = null)
 			subtext.innerText = "Manage Docker image downloads for droplets.";
 			
 			content.innerHTML = `
-			<div style="margin-bottom: 20px;">
+			<div style="margin-bottom: 20px; display: flex; align-items: center;">
 				<button class="button-1-full" onclick="PullAllImages(this)">Update All</button>
 				<button class="button-1" onclick="ShowImageLogs()" style="margin-left: 10px;">View Logs</button>
+				<span id="total-images-size" style="margin-left: 15px; font-size: 13px; color: var(--text-color-gray);"></span>
 			</div>
 			<div id="images-content" style="width: inherit;">
 				<table class="admin-modal-table">
@@ -732,7 +750,143 @@ function AdminChangeTab(tab, element = null)
 			setTimeout(window.UpdateSsoRedirectUri, 50);
 		});
 		break;
+		case 'stats':
+			header.innerText = "System Statistics";
+			subtext.innerText = "Live resource usage for the host and Docker containers.";
+			content.innerHTML = '<div style="text-align:center;">Loading stats...</div>';
+			
+			fetch('/api/admin/stats')
+				.then(r => r.json())
+				.then(json => {
+					if (!json.success) {
+						content.innerHTML = '<div style="color:red;">Error loading stats.</div>';
+						return;
+					}
+					content.innerHTML = `
+						<div style="display:flex; flex-wrap:wrap; gap:20px;">
+							<div class="admin-modal-card" style="flex:1; min-width:250px;">
+								<p>CPU Usage</p>
+								<h2 style="margin:10px 0;">${json.cpu}%</h2>
+								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px;">
+									<div style="width:${json.cpu}%; background:#4f8ef7; height:100%; border-radius:4px;"></div>
+								</div>
+							</div>
+							<div class="admin-modal-card" style="flex:1; min-width:250px;">
+								<p>Memory Usage</p>
+								<h2 style="margin:10px 0;">${json.memory.percent}%</h2>
+								<p style="font-size:12px; color:var(--text-color-gray);">
+									${(json.memory.used/1024/1024/1024).toFixed(1)} GB / ${(json.memory.total/1024/1024/1024).toFixed(1)} GB
+								</p>
+								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px;">
+									<div style="width:${json.memory.percent}%; background:#28a745; height:100%; border-radius:4px;"></div>
+								</div>
+							</div>
+							<div class="admin-modal-card" style="flex:1; min-width:250px;">
+								<p>Disk Usage</p>
+								<h2 style="margin:10px 0;">${json.disk.percent}%</h2>
+								<p style="font-size:12px; color:var(--text-color-gray);">
+									${(json.disk.used/1024/1024/1024).toFixed(1)} GB / ${(json.disk.total/1024/1024/1024).toFixed(1)} GB
+								</p>
+								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px;">
+									<div style="width:${json.disk.percent}%; background:#ffc107; height:100%; border-radius:4px;"></div>
+								</div>
+							</div>
+							<div class="admin-modal-card" style="flex:1; min-width:250px;">
+								<p>Docker Containers</p>
+								<h2 style="margin:10px 0;">${json.docker.running_containers} / ${json.docker.total_containers}</h2>
+								<p style="font-size:12px; color:var(--text-color-gray);">Running / Total</p>
+							</div>
+						</div>
+					`;
+				});
+			break;
+			
+		case 'scheduled_tasks':
+			header.innerText = "Scheduled Tasks";
+			subtext.innerText = "Configure automatic Docker pruning and idle instance shutdowns.";
+			content.innerHTML = '<div style="text-align:center;">Loading settings...</div>';
+			
+			fetch('/api/admin/settings')
+				.then(r => r.json())
+				.then(json => {
+					if (!json.success) return;
+					var s = json.settings;
+					content.innerHTML = `
+						<div style="max-width: 538px; width: 100%;">
+							<div class="admin-modal-card" style="padding: 16px;">
+								<h3 style="margin:0 0 10px;">Docker Prune Schedule</h3>
+								<p class="admin-modal-help-text">Automatically remove dangling Docker images to free up space.</p>
+								<select id="settings-prune-frequency" style="width:100%; padding: 8px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); color: white; border-radius: 8px;">
+									<option value="never" ${s.prune_frequency === 'never' ? 'selected' : ''}>Never</option>
+									<option value="daily" ${s.prune_frequency === 'daily' ? 'selected' : ''}>Daily</option>
+									<option value="twice_a_day" ${s.prune_frequency === 'twice_a_day' ? 'selected' : ''}>Twice a day</option>
+									<option value="weekly" ${s.prune_frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
+								</select>
+							</div>
+							<div class="admin-modal-card" style="padding: 16px; margin-top:20px;">
+								<h3 style="margin:0 0 10px;">Auto-Shutdown Idle Instances</h3>
+								<p class="admin-modal-help-text">Stop instances that have no network traffic or low CPU usage for a certain time.</p>
+								
+								<label style="display:flex; align-items:center; cursor:pointer; margin-bottom:15px;">
+									<input type="checkbox" id="settings-auto-shutdown" ${s.auto_shutdown_enabled ? 'checked' : ''} style="margin-right:10px;">
+									Enable Auto-Shutdown
+								</label>
+								
+								<p>Idle Timeout (Minutes)</p>
+								<input type="number" id="settings-idle-timeout" value="${s.idle_timeout_mins}" style="width:100%; padding:8px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); color:white; border-radius:8px;">
+							</div>
+							
+							<div style="margin-top: 20px;">
+								<button class="button-1-full" onclick="SaveAdminSettings()">Save Settings</button>
+							</div>
+						</div>
+					`;
+				});
+			break;
 	}
+}
+
+function SaveAdminSettings() {
+	var data = {
+		prune_frequency: document.getElementById('settings-prune-frequency').value,
+		auto_shutdown_enabled: document.getElementById('settings-auto-shutdown').checked,
+		idle_timeout_mins: document.getElementById('settings-idle-timeout').value
+	};
+	
+	fetch('/api/admin/settings', {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'},
+		body: JSON.stringify(data)
+	}).then(r => r.json()).then(json => {
+		if(json.success) CreateNotification(json.message, "success");
+		else CreateNotification(json.error, "error");
+	});
+}
+
+function BulkDelete(type) {
+	var checkboxes = document.querySelectorAll('.bulk-checkbox-' + type + ':checked');
+	if(checkboxes.length === 0) {
+		CreateNotification("No items selected.", "error");
+		return;
+	}
+	
+	if(!confirm("Are you sure you want to delete " + checkboxes.length + " selected items? This action cannot be undone.")) {
+		return;
+	}
+	
+	var ids = Array.from(checkboxes).map(cb => cb.value);
+	fetch('/api/admin/bulk_delete', {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'},
+		body: JSON.stringify({type: type, ids: ids})
+	}).then(r => r.json()).then(json => {
+		if(json.success) {
+			CreateNotification(json.message, "success");
+			AdminChangeTab(currentTab, null); // refresh current tab
+		} else {
+			CreateNotification(json.error, "error");
+		}
+	});
 }
 
 function FetchAdminSsoConfig(callback) {
@@ -2048,10 +2202,17 @@ function UpdateImageStatusDisplay(images)
 		<tr>
 			<td colspan="4" style="text-align: center; padding: 20px; color: var(--text-color-gray);">No droplets with Docker images found</td>
 		</tr>`;
+		if (document.getElementById('total-images-size')) {
+			document.getElementById('total-images-size').innerText = "";
+		}
 	} else {
 		let isDownloading = false;
+		let totalSize = 0;
 		Object.keys(images).forEach(dropletId => {
 			var imageInfo = images[dropletId];
+			if (imageInfo.size) {
+				totalSize += imageInfo.size;
+			}
 			
 			// Fix race condition: if it just finished downloading, docker images list might have been cached or fetched right before completion.
 			var isDoneAndWaiting = (imageInfo.download_status === 'done' && !imageInfo.exists);
@@ -2111,6 +2272,19 @@ function UpdateImageStatusDisplay(images)
 			</tr>`;
 		});
 		
+		if (document.getElementById('total-images-size')) {
+			if (totalSize > 0) {
+				var sizeInMB = (totalSize / (1024 * 1024)).toFixed(2);
+				if (sizeInMB > 1024) {
+					document.getElementById('total-images-size').innerText = `Total Size: ${(sizeInMB / 1024).toFixed(2)} GB`;
+				} else {
+					document.getElementById('total-images-size').innerText = `Total Size: ${sizeInMB} MB`;
+				}
+			} else {
+				document.getElementById('total-images-size').innerText = "";
+			}
+		}
+
 		if (isDownloading && window.imagesStatusTimeout) {
 			clearTimeout(window.imagesStatusTimeout);
 		}
