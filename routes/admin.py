@@ -1047,94 +1047,243 @@ def api_admin_settings():
 		SystemSetting.set('idle_timeout_mins', data.get('idle_timeout_mins', 30))
 		return jsonify({"success": True, "message": "Settings saved."})
 
+# Cache for stats endpoint to avoid repeated slow Docker API calls
+_STATS_CACHE_FILE = '/tmp/flowcase_stats_cache.json'
+_stats_update_lock = None
+
+def get_stats_cache():
+    try:
+        import json
+        import os
+        if os.path.exists(_STATS_CACHE_FILE):
+            with open(_STATS_CACHE_FILE, 'r') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"data": None, "timestamp": 0}
+
+def set_stats_cache(data):
+    try:
+        import json
+        import time
+        with open(_STATS_CACHE_FILE, 'w') as f:
+            json.dump({"data": data, "timestamp": time.time()}, f)
+    except Exception:
+        pass
+
+def _parse_size(size_str):
+    """Parse a size string like '1.5GB' or '500MB' or '100kB' into bytes"""
+    size_str = size_str.strip().upper()
+    if not size_str or size_str == '0':
+        return 0
+    multipliers = {'KB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4, 'B': 1}
+    for unit, mult in multipliers.items():
+        if size_str.endswith(unit):
+            try:
+                return int(float(size_str[:-len(unit)]) * mult)
+            except:
+                return 0
+    try:
+        return int(size_str)
+    except:
+        return 0
+
+def _update_stats_cache_background():
+    """Background function to update stats cache without blocking the API"""
+    global _stats_update_lock
+    
+    import time
+    import concurrent.futures
+    import threading
+    import logging
+    
+    logger = logging.getLogger(__name__)
+
+    # Use a lock to prevent multiple concurrent updates
+    if _stats_update_lock is None:
+        _stats_update_lock = threading.Lock()
+
+    if not _stats_update_lock.acquire(blocking=False):
+        return  # Another update is in progress
+
+    try:
+        # Non-blocking CPU percent (interval=None returns immediately)
+        cpu_usage = psutil.cpu_percent(interval=0.1)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+
+        try:
+            containers = utils.docker.docker_client.containers.list(all=True)
+            flowcase_containers = [c for c in containers if c.name.startswith('flowcase_generated_')]
+            running_flowcase_containers = [c for c in flowcase_containers if c.status == 'running']
+            docker_stats = {
+                "total_containers": len(flowcase_containers),
+                "running_containers": len(running_flowcase_containers)
+            }
+
+            # Get disk usage from docker system df - with timeout
+            flowcase_disk_used = 0
+            try:
+                df = utils.docker.docker_client.api.df()
+                
+                # Get image IDs used by droplet containers
+                used_image_ids = {c.image.id for c in flowcase_containers}
+                
+                for c in df.get('Containers', []):
+                    if any(name.strip('/').startswith('flowcase_generated_') for name in c.get('Names', [])):
+                        flowcase_disk_used += c.get('SizeRw', 0)
+                        
+                for img in df.get('Images', []):
+                    tags = img.get('RepoTags') or []
+                    is_flowcase_related = (
+                        img.get('Id') in used_image_ids or 
+                        any('flowcase' in tag.lower() or 'vigno04' in tag.lower() for tag in tags)
+                    )
+                    if is_flowcase_related:
+                        flowcase_disk_used += img.get('Size', 0)
+                        
+                for vol in df.get('Volumes', []):
+                    if vol.get('Name', '').startswith('flowcase_shared_'):
+                        flowcase_disk_used += vol.get('UsageData', {}).get('Size', 0)
+                logger.info(f"Stats background update: flowcase_disk_used={flowcase_disk_used}")
+            except Exception as e:
+                logger.warning(f"Stats background update: docker df error: {e}")
+
+            # Get container stats in parallel with a timeout
+            flowcase_memory_used = 0
+            flowcase_cpu_percent = 0.0
+
+            def get_container_stats(c):
+                try:
+                    return c.stats(stream=False)
+                except:
+                    return None
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_container = {executor.submit(get_container_stats, c): c for c in running_flowcase_containers}
+                results = []
+                for future in concurrent.futures.as_completed(future_to_container, timeout=10):
+                    try:
+                        result = future.result()
+                        if result:
+                            results.append(result)
+                    except:
+                        pass
+
+            for stats in results:
+                if not stats: continue
+                mem_usage = stats.get('memory_stats', {}).get('usage', 0)
+                mem_cache = stats.get('memory_stats', {}).get('stats', {}).get('cache', 0)
+                flowcase_memory_used += max(0, mem_usage - mem_cache)
+
+                cpu_stats = stats.get('cpu_stats', {})
+                precpu_stats = stats.get('precpu_stats', {})
+                cpu_delta = cpu_stats.get('cpu_usage', {}).get('total_usage', 0) - precpu_stats.get('cpu_usage', {}).get('total_usage', 0)
+                system_delta = cpu_stats.get('system_cpu_usage', 0) - precpu_stats.get('system_cpu_usage', 0)
+                if system_delta > 0 and cpu_delta > 0:
+                    online_cpus = cpu_stats.get('online_cpus', len(cpu_stats.get('cpu_usage', {}).get('percpu_usage', [1])))
+                    flowcase_cpu_percent += (cpu_delta / system_delta) * online_cpus * 100.0
+
+        except Exception as e:
+            logger.error(f"Stats background update error: {e}")
+            docker_stats = {"total_containers": 0, "running_containers": 0}
+            flowcase_disk_used = 0
+            flowcase_memory_used = 0
+            flowcase_cpu_percent = 0.0
+
+        response = {
+            "success": True,
+            "cpu": cpu_usage,
+            "memory": {
+                "total": mem.total,
+                "used": mem.used,
+                "percent": mem.percent
+            },
+            "disk": {
+                "total": disk.total,
+                "used": disk.used,
+                "percent": disk.percent
+            },
+            "flowcase": {
+                "disk_used": flowcase_disk_used,
+                "memory_used": flowcase_memory_used,
+                "cpu_percent": round(flowcase_cpu_percent, 1)
+            },
+            "docker": docker_stats,
+            "last_updated": time.time()
+        }
+        
+        # Cache the response using file
+        set_stats_cache(response)
+        
+    finally:
+        _stats_update_lock.release()
+
 @admin_bp.route('/stats', methods=['GET'])
 @login_required
 def api_admin_stats():
-	if not Permissions.check_permission(current_user.id, Permissions.ADMIN_PANEL):
-		return jsonify({"success": False, "error": "Unauthorized"}), 403
-		
-	import concurrent.futures
-	
-	cpu_usage = psutil.cpu_percent(interval=0.1)
-	mem = psutil.virtual_memory()
-	disk = psutil.disk_usage('/')
-	
-	try:
-		containers = utils.docker.docker_client.containers.list(all=True)
-		flowcase_containers = [c for c in containers if 'flowcase' in c.name]
-		running_flowcase_containers = [c for c in flowcase_containers if c.status == 'running']
-		docker_stats = {
-			"total_containers": len(flowcase_containers),
-			"running_containers": len(running_flowcase_containers)
-		}
-		
-		flowcase_disk_used = 0
-		try:
-			df = utils.docker.docker_client.api.df()
-			for c in df.get('Containers', []):
-				if any('flowcase' in name for name in c.get('Names', [])):
-					flowcase_disk_used += c.get('SizeRw', 0)
-			for img in df.get('Images', []):
-				if img.get('RepoTags') and any('flowcase' in tag or 'vigno04' in tag for tag in img.get('RepoTags', [])):
-					flowcase_disk_used += img.get('Size', 0)
-			for vol in df.get('Volumes', []):
-				if 'flowcase' in vol.get('Name', ''):
-					flowcase_disk_used += vol.get('UsageData', {}).get('Size', 0)
-		except:
-			pass
-			
-		flowcase_memory_used = 0
-		flowcase_cpu_percent = 0.0
-		
-		def get_container_stats(c):
-			try:
-				return c.stats(stream=False)
-			except:
-				return None
+    if not Permissions.check_permission(current_user.id, Permissions.ADMIN_PANEL):
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
 
-		with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-			results = list(executor.map(get_container_stats, running_flowcase_containers))
-			
-		for stats in results:
-			if not stats: continue
-			mem_usage = stats.get('memory_stats', {}).get('usage', 0)
-			mem_cache = stats.get('memory_stats', {}).get('stats', {}).get('cache', 0)
-			flowcase_memory_used += max(0, mem_usage - mem_cache)
-			
-			cpu_stats = stats.get('cpu_stats', {})
-			precpu_stats = stats.get('precpu_stats', {})
-			cpu_delta = cpu_stats.get('cpu_usage', {}).get('total_usage', 0) - precpu_stats.get('cpu_usage', {}).get('total_usage', 0)
-			system_delta = cpu_stats.get('system_cpu_usage', 0) - precpu_stats.get('system_cpu_usage', 0)
-			if system_delta > 0 and cpu_delta > 0:
-				online_cpus = cpu_stats.get('online_cpus', len(cpu_stats.get('cpu_usage', {}).get('percpu_usage', [1])))
-				flowcase_cpu_percent += (cpu_delta / system_delta) * online_cpus * 100.0
+    import time
+    import threading
+    
+    # Check cache first
+    current_time = time.time()
+    cache_obj = get_stats_cache()
+    _STATS_CACHE_TTL = 10
+    
+    if cache_obj["data"] and (current_time - cache_obj["timestamp"]) < _STATS_CACHE_TTL:
+        return jsonify(cache_obj["data"])
 
-	except:
-		docker_stats = {"total_containers": 0, "running_containers": 0}
-		flowcase_disk_used = 0
-		flowcase_memory_used = 0
-		flowcase_cpu_percent = 0.0
-		
-	return jsonify({
-		"success": True,
-		"cpu": cpu_usage,
-		"memory": {
-			"total": mem.total,
-			"used": mem.used,
-			"percent": mem.percent
-		},
-		"disk": {
-			"total": disk.total,
-			"used": disk.used,
-			"percent": disk.percent
-		},
-		"flowcase": {
-			"disk_used": flowcase_disk_used,
-			"memory_used": flowcase_memory_used,
-			"cpu_percent": round(flowcase_cpu_percent, 1)
-		},
-		"docker": docker_stats
-	})
+    # If cache is stale or empty, trigger background update and return stale data immediately
+    # (or return basic system stats if no cache exists)
+    if cache_obj["data"]:
+        # Return stale data immediately, trigger background update
+        # Set timestamp NOW so that other workers don't spawn multiple threads in this TTL cycle
+        set_stats_cache(cache_obj["data"])
+        threading.Thread(target=_update_stats_cache_background, daemon=True).start()
+        return jsonify(cache_obj["data"])
+    else:
+        # No cache at all - return basic system stats immediately, trigger full update
+        import psutil
+        cpu_usage = psutil.cpu_percent(interval=0.1)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        basic_response = {
+            "success": True,
+            "cpu": cpu_usage,
+            "memory": {
+                "total": mem.total,
+                "used": mem.used,
+                "percent": mem.percent
+            },
+            "disk": {
+                "total": disk.total,
+                "used": disk.used,
+                "percent": disk.percent
+            },
+            "flowcase": {
+                "disk_used": 0,
+                "memory_used": 0,
+                "cpu_percent": 0.0
+            },
+            "docker": {
+                "total_containers": 0,
+                "running_containers": 0
+            },
+            "last_updated": current_time,
+            "is_basic": True
+        }
+        
+        # Cache basic response immediately
+        set_stats_cache(basic_response)
+        
+        # Trigger full background update
+        threading.Thread(target=_update_stats_cache_background, daemon=True).start()
+        
+        return jsonify(basic_response)
 
 @admin_bp.route('/bulk_delete', methods=['POST'])
 @login_required

@@ -120,11 +120,7 @@
                         <i class="fas fa-database"></i>Registry
                     </a>
                     {% endif %}
-                    {% if current_user.has_permission("perm_view_instances") %}
-                    <a href="#" class="admin-modal-sidebar-button" onclick="AdminChangeTab('instances', this)">
-                        <i class="fas fa-desktop"></i>Instances
-                    </a>
-                    {% endif %}
+
                     <a href="#" class="admin-modal-sidebar-button" onclick="AdminChangeTab('logs', this)">
                         <i class="fas fa-history"></i>Logs
                     </a>
@@ -134,7 +130,7 @@
                     <a href="#" class="admin-modal-sidebar-button" onclick="AdminChangeTab('stats', this)">
                         <i class="fas fa-chart-bar"></i>Stats
                     </a>
-                    <a href="#" class="admin-modal-sidebar-button" onclick="AdminChangeTab('scheduled_tasks', this)">
+                    <a href="#" class="admin-modal-sidebar-button" onclick="AdminChangeTab('scheduler', this)">
                         <i class="fas fa-clock"></i>Tasks
                     </a>
                 </div>
@@ -537,14 +533,35 @@
                     `;
                 });
             }
+
+            // Handle auto-save from URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const autoSave = urlParams.get('auto_save');
+            const autoSaveAs = urlParams.get('auto_save_as');
+            const saveName = urlParams.get('name');
+
+            if (autoSave || autoSaveAs) {
+                let targetId = autoSave || autoSaveAs;
+                let btn = document.querySelector(`.droplet-instance[data-id="${targetId}"] .droplet-instance-popup-close`) || 
+                          document.querySelector(`.droplet-instance[data-id="${targetId}"] .droplet-instance-popup-destroy`);
+                
+                // Remove the URL params without refreshing
+                window.history.replaceState({}, document.title, window.location.pathname);
+
+                if (autoSaveAs) {
+                    CloseAndSaveAsInstance(targetId, saveName, btn);
+                } else if (autoSave) {
+                    CloseAndSaveInstance(targetId, btn, true); // true = skipConfirm
+                }
+            }
         }
 
         function ResumeInstance(instanceId, btn) {
             window.location.href = '/droplet/' + instanceId;
         }
 
-        function CloseAndSaveInstance(instanceId, btn) {
-            if (!confirm("Save and close this instance?")) return;
+        function CloseAndSaveInstance(instanceId, btn, skipConfirm = false) {
+            if (!skipConfirm && !confirm("Save and close this instance?")) return;
             if (btn) {
                 btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
                 btn.style.pointerEvents = 'none';
@@ -569,6 +586,33 @@
                 }
             };
             xhr.send(JSON.stringify({}));
+        }
+
+        function CloseAndSaveAsInstance(instanceId, customName, btn) {
+            if (btn) {
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+                btn.style.pointerEvents = 'none';
+            }
+            var url = "/api/instance/" + instanceId + "/save_as";
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", url, true);
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4) {
+                    var json = JSON.parse(xhr.responseText);
+                    if (json["success"] == true) {
+                        CreateNotification("Instance saved and closed!", "success");
+                        UpdateAll();
+                    } else {
+                        if (btn) {
+                            btn.innerHTML = 'Close';
+                            btn.style.pointerEvents = 'auto';
+                        }
+                        CreateNotification(json["error"] || "Failed to save instance", "error");
+                    }
+                }
+            };
+            xhr.send(JSON.stringify({ "custom_name": customName }));
         }
 
         function CloseModal() {

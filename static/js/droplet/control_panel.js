@@ -108,38 +108,14 @@ function SaveDropletButton() {
 		AudioStop();
 		toggleSidebar();
 		iframe.style.display = 'none';
-		iframe.src = "about:blank";
-		ShowLoadingScreen("Saving instance... This may take a moment.");
-
-		var url = `/api/instance/${instanceInfo.id}/save_as`;
-		var xhr = new XMLHttpRequest();
-		xhr.open("POST", url, true);
-		xhr.setRequestHeader("Content-Type", "application/json");
-		xhr.onreadystatechange = function () {
-			if (xhr.readyState === 4) {
-				window.location.href = "/dashboard";
-			}
-		};
-		xhr.send(JSON.stringify({ "custom_name": customName }));
+		window.location.href = `/dashboard?auto_save_as=${instanceInfo.id}&name=${encodeURIComponent(customName)}`;
 	} else {
 		// Subsequent save — just overwrite
 		isExiting = true;
 		AudioStop();
 		toggleSidebar();
 		iframe.style.display = 'none';
-		iframe.src = "about:blank";
-		ShowLoadingScreen("Saving instance... This may take a moment.");
-
-		var url = `/api/instance/${instanceInfo.id}/save`;
-		var xhr = new XMLHttpRequest();
-		xhr.open("POST", url, true);
-		xhr.setRequestHeader("Content-Type", "application/json");
-		xhr.onreadystatechange = function () {
-			if (xhr.readyState === 4) {
-				window.location.href = "/dashboard";
-			}
-		};
-		xhr.send(JSON.stringify({}));
+		window.location.href = `/dashboard?auto_save=${instanceInfo.id}`;
 	}
 }
 
@@ -151,17 +127,5 @@ function SaveAsDropletButton() {
 	AudioStop();
 	toggleSidebar();
 	iframe.style.display = 'none';
-	iframe.src = "about:blank";
-	ShowLoadingScreen("Creating save... This may take a moment.");
-
-	var url = `/api/instance/${instanceInfo.id}/save_as`;
-	var xhr = new XMLHttpRequest();
-	xhr.open("POST", url, true);
-	xhr.setRequestHeader("Content-Type", "application/json");
-	xhr.onreadystatechange = function () {
-		if (xhr.readyState === 4) {
-			window.location.href = "/dashboard";
-		}
-	};
-	xhr.send(JSON.stringify({ "custom_name": customName }));
+	window.location.href = `/dashboard?auto_save_as=${instanceInfo.id}&name=${encodeURIComponent(customName)}`;
 }

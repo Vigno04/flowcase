@@ -8,7 +8,7 @@ import docker
 import docker.types
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
-from flask import Blueprint, jsonify, request, render_template, redirect, make_response, send_from_directory
+from flask import Blueprint, jsonify, request, render_template, redirect, make_response, send_from_directory, current_app
 from flask_login import login_required, current_user
 import psutil
 from __init__ import db, __version__
@@ -774,6 +774,31 @@ def stop_instance(instance_id: str):
  
 	return jsonify({"success": True})
 
+def background_save_task(app, instance_id, custom_name):
+	with app.app_context():
+		try:
+			instance = DropletInstance.query.filter_by(id=instance_id).first()
+			if not instance:
+				return
+			container_name = f"flowcase_generated_{instance.id}"
+			container = utils.docker.docker_client.containers.get(container_name)
+			
+			snapshot_name = f"flowcase_save_{instance.id}"
+			container.commit(repository=snapshot_name)
+			container.remove(force=True)
+			
+			instance.status = "saved"
+			instance.snapshot_image_name = snapshot_name
+			if custom_name:
+				instance.custom_name = custom_name
+			
+			if os.path.exists(f"/flowcase/nginx/containers.d/{instance.id}.conf"):
+				os.remove(f"/flowcase/nginx/containers.d/{instance.id}.conf")
+				reload_nginx()
+			db.session.commit()
+		except Exception as e:
+			log("ERROR", f"Error in background save for {instance_id}: {str(e)}")
+
 @droplet_bp.route('/api/instance/<string:instance_id>/save', methods=['POST'])
 @login_required
 def save_instance(instance_id: str):
@@ -789,33 +814,43 @@ def save_instance(instance_id: str):
 	if not utils.docker.docker_client:
 		return jsonify({"success": False, "error": "Docker service unavailable"}), 500
 
-	container_name = f"flowcase_generated_{instance.id}"
 	try:
-		container = utils.docker.docker_client.containers.get(container_name)
-		
-		# Commit the container to a new image
-		snapshot_name = f"flowcase_save_{instance.id}"
-		container.commit(repository=snapshot_name)
-		
-		# Remove the running container
-		container.remove(force=True)
-		
-		# Update instance
-		instance.status = "saved"
-		instance.snapshot_image_name = snapshot_name
-		if custom_name:
-			instance.custom_name = custom_name
-		
-		# Delete nginx config as the container is gone
-		if os.path.exists(f"/flowcase/nginx/containers.d/{instance.id}.conf"):
-			os.remove(f"/flowcase/nginx/containers.d/{instance.id}.conf")
-			reload_nginx()
-
+		instance.status = "saving"
 		db.session.commit()
+		app = current_app._get_current_object()
+		threading.Thread(target=background_save_task, args=(app, instance_id, custom_name)).start()
 		return jsonify({"success": True})
 	except Exception as e:
-		log("ERROR", f"Error saving instance {instance_id}: {str(e)}")
+		log("ERROR", f"Error launching save thread for instance {instance_id}: {str(e)}")
 		return jsonify({"success": False, "error": f"Failed to save instance: {str(e)}"}), 500
+
+def background_save_as_task(app, original_instance_id, new_instance_id):
+	with app.app_context():
+		try:
+			original_instance = DropletInstance.query.filter_by(id=original_instance_id).first()
+			new_instance = DropletInstance.query.filter_by(id=new_instance_id).first()
+			if not original_instance or not new_instance:
+				return
+				
+			container_name = f"flowcase_generated_{original_instance.id}"
+			container = utils.docker.docker_client.containers.get(container_name)
+			
+			snapshot_name = f"flowcase_save_{new_instance_id}"
+			container.commit(repository=snapshot_name)
+			
+			new_instance.snapshot_image_name = snapshot_name
+			new_instance.status = "saved"
+			
+			container.remove(force=True)
+			
+			if os.path.exists(f"/flowcase/nginx/containers.d/{original_instance.id}.conf"):
+				os.remove(f"/flowcase/nginx/containers.d/{original_instance.id}.conf")
+				reload_nginx()
+				
+			db.session.delete(original_instance)
+			db.session.commit()
+		except Exception as e:
+			log("ERROR", f"Error in background save_as for {original_instance_id}: {str(e)}")
 
 @droplet_bp.route('/api/instance/<string:instance_id>/save_as', methods=['POST'])
 @login_required
@@ -835,32 +870,17 @@ def save_as_instance(instance_id: str):
 		return jsonify({"success": False, "error": "Docker service unavailable"}), 500
 
 	try:
-		# Generate a new ID manually so we can use it before committing
 		import uuid
 		new_instance_id = str(uuid.uuid4())
-		new_instance = DropletInstance(id=new_instance_id, droplet_id=instance.droplet_id, user_id=current_user.id, status="saved", custom_name=custom_name)
-
-		container_name = f"flowcase_generated_{instance.id}"
-		container = utils.docker.docker_client.containers.get(container_name)
-		
-		# Commit the running container to the NEW instance's snapshot image
-		snapshot_name = f"flowcase_save_{new_instance_id}"
-		container.commit(repository=snapshot_name)
-		
-		new_instance.snapshot_image_name = snapshot_name
+		new_instance = DropletInstance(id=new_instance_id, droplet_id=instance.droplet_id, user_id=current_user.id, status="saving", custom_name=custom_name)
 		db.session.add(new_instance)
-
-		# Remove the running container now that it's been committed
-		container.remove(force=True)
-
-		# Remove nginx config for this instance since container is gone
-		if os.path.exists(f"/flowcase/nginx/containers.d/{instance.id}.conf"):
-			os.remove(f"/flowcase/nginx/containers.d/{instance.id}.conf")
-			reload_nginx()
-
-		# Delete the original running instance record (save_as creates a new saved copy)
-		db.session.delete(instance)
+		
+		# Set original instance to saving so UI doesn't allow interaction
+		instance.status = "saving"
 		db.session.commit()
+		
+		app = current_app._get_current_object()
+		threading.Thread(target=background_save_as_task, args=(app, instance_id, new_instance_id)).start()
 
 		return jsonify({"success": True})
 	except Exception as e:

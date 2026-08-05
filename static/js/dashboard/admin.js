@@ -62,6 +62,12 @@ function CloseAdminPanel() {
 	adminModal.classList.remove('active');
 	// Also close sidebar if it's open
 	document.querySelector('.admin-modal-content').classList.remove('sidebar-active');
+	
+	// Clear stats refresh interval
+	if (window.statsRefreshInterval) {
+		clearInterval(window.statsRefreshInterval);
+		window.statsRefreshInterval = null;
+	}
 }
 
 // Handle clicks outside modal
@@ -114,6 +120,12 @@ function AdminChangeTab(tab, element = null)
 {
 	var header = document.getElementById('admin-modal-header');
 	var subtext = document.getElementById('admin-modal-subtext');
+
+	// Clear stats refresh interval when switching away from stats tab
+	if (currentTab === 'stats' && tab !== 'stats' && window.statsRefreshInterval) {
+		clearInterval(window.statsRefreshInterval);
+		window.statsRefreshInterval = null;
+	}
 
 	//Remove active class from all buttons
 	var buttons = document.querySelectorAll('.admin-modal-sidebar-button');
@@ -339,42 +351,7 @@ function AdminChangeTab(tab, element = null)
 			RenderRegistryDroplets();
 			});
 			break;
-		case 'instances':
-			header.innerText = "Instances";
-			subtext.innerText = "View and manage the instances currently running.";
 
-			FetchAdminInstances(function(json) {
-				content.innerHTML = `
-					${userInfo.permissions.perm_edit_instances ? `
-						<div style="display: flex; gap: 10px; margin-bottom: 10px;">
-							<button class="button-1" style="background:#e05454;" onclick="BulkDelete('instances')">Delete Selected</button>
-						</div>
-					` : ''}
-				<table class="admin-modal-table">
-					<tr>
-						${userInfo.permissions.perm_edit_instances ? `<th style="width: 40px; text-align: center;"><input type="checkbox" onclick="document.querySelectorAll('.bulk-checkbox-instances').forEach(cb => cb.checked = this.checked)"></th>` : ''}
-						<th>Name</th>
-						<th>Username</th>
-						<th>Creation Time</th>
-						<th>Internal IP</th>
-						${userInfo.permissions.perm_edit_instances ? `<th>Actions</th>` : ''}
-					</tr>
-					${json["instances"].map(instance => `
-						<tr>
-							${userInfo.permissions.perm_edit_instances ? `<td style="text-align: center;"><input type="checkbox" class="bulk-checkbox-instances" value="${instance.id}"></td>` : ''}
-							<td><div><img src="${instance.droplet.image_path ? instance.droplet.image_path : '/static/img/droplet_default.jpg'}"><p>${instance.droplet.display_name}</p></div></td>
-							<td>${instance.user.username}</td>
-							<td>${instance.created_at}</td>
-							<td>${instance.ip}</td>
-							${userInfo.permissions.perm_edit_instances ? `<td class="admin-modal-table-actions">
-								<i class="fas fa-trash" onclick="AdminDeleteInstance('${instance.id}')"></i>
-							</td>` : ''}
-						</tr>
-					`).join('')}
-				</table>
-				`;
-			});
-			break;
 		case 'system':
 			header.innerText = "System";
 			subtext.innerText = "View system information.";
@@ -752,86 +729,165 @@ function AdminChangeTab(tab, element = null)
 		break;
 		case 'stats':
 			header.innerText = "System Statistics";
-			subtext.innerText = "Live resource usage for the host and Docker containers.";
-			content.innerHTML = '<div style="text-align:center;">Loading stats...</div>';
+			subtext.innerText = "Live resource usage for the host, Docker containers, and running instances.";
 			
-			fetch('/api/admin/stats')
-				.then(r => r.json())
-				.then(json => {
-					if (!json.success) {
-						content.innerHTML = '<div style="color:red;">Error loading stats.</div>';
-						return;
-					}
-					content.innerHTML = `
-						<div style="display:flex; flex-wrap:wrap; gap:20px;">
-							<div class="admin-modal-card" style="flex:1; min-width:250px;">
-								<p>CPU Usage</p>
-								<h2 style="margin:10px 0;">${json.cpu}%</h2>
-								${json.flowcase && json.flowcase.cpu_percent !== undefined ? `
-								<p style="font-size:12px; color:var(--primary-color);">
-									Flowcase: ${json.flowcase.cpu_percent}%
-								</p>
-								` : ''}
-								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
+			// Clear any existing refresh interval
+			if (window.statsRefreshInterval) {
+				clearInterval(window.statsRefreshInterval);
+			}
+			content.innerHTML = `
+				<div id="stats-container"><div style="text-align:center;">Loading stats...</div></div>
+				<h3 style="margin-top: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">Instances</h3>
+				<div id="instances-container"><div style="text-align:center;">Loading instances...</div></div>
+			`;
+			
+			// Function to load and render stats
+			function loadStats() {
+				fetch('/api/admin/stats')
+					.then(r => r.json())
+					.then(json => {
+						let statsContainer = document.getElementById('stats-container');
+						if (!statsContainer) return;
+						if (!json.success) {
+							statsContainer.innerHTML = '<div style="color:red;">Error loading stats.</div>';
+							return;
+						}
+						statsContainer.innerHTML = `
+							<div style="display:flex; flex-wrap:wrap; gap:20px; margin-bottom: 20px;">
+								<div class="admin-modal-card" style="flex:1; min-width:250px;">
+									<p>CPU Usage</p>
+									<h2 style="margin:10px 0;">${json.cpu}%</h2>
+									<p style="font-size:12px; color:var(--text-color-gray); margin-bottom: 5px;">
+										${json.cpu}% / 100% Total
+									</p>
 									${json.flowcase && json.flowcase.cpu_percent !== undefined ? `
-									<div style="width:${json.flowcase.cpu_percent}%; background:var(--primary-color); height:100%;"></div>
-									<div style="width:${Math.max(0, json.cpu - json.flowcase.cpu_percent)}%; background:#4f8ef7; height:100%;"></div>
-									` : `
-									<div style="width:${json.cpu}%; background:#4f8ef7; height:100%;"></div>
-									`}
+									<p style="font-size:12px; color:#1084ff;">
+										Flowcase: ${json.flowcase.cpu_percent}%
+									</p>
+									` : ''}
+									<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
+										${json.flowcase && json.flowcase.cpu_percent !== undefined ? `
+										<div style="width:${json.flowcase.cpu_percent}%; background:#1084ff; height:100%;"></div>
+										<div style="width:${Math.max(0, json.cpu - json.flowcase.cpu_percent)}%; background:#4f8ef7; height:100%;"></div>
+										` : `
+										<div style="width:${json.cpu}%; background:#4f8ef7; height:100%;"></div>
+										`}
+									</div>
 								</div>
-							</div>
-							<div class="admin-modal-card" style="flex:1; min-width:250px;">
-								<p>Memory Usage</p>
-								<h2 style="margin:10px 0;">${json.memory.percent}%</h2>
-								<p style="font-size:12px; color:var(--text-color-gray); margin-bottom: 5px;">
-									${(json.memory.used/1024/1024/1024).toFixed(1)} GB / ${(json.memory.total/1024/1024/1024).toFixed(1)} GB Total
-								</p>
-								${json.flowcase && json.flowcase.memory_used !== undefined ? `
-								<p style="font-size:12px; color:var(--primary-color);">
-									Flowcase: ${(json.flowcase.memory_used/1024/1024/1024).toFixed(1)} GB
-								</p>
-								` : ''}
-								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
+								<div class="admin-modal-card" style="flex:1; min-width:250px;">
+									<p>Memory Usage</p>
+									<h2 style="margin:10px 0;">${json.memory.percent}%</h2>
+									<p style="font-size:12px; color:var(--text-color-gray); margin-bottom: 5px;">
+										${(json.memory.used/1024/1024/1024).toFixed(1)} GB / ${(json.memory.total/1024/1024/1024).toFixed(1)} GB Total
+									</p>
 									${json.flowcase && json.flowcase.memory_used !== undefined ? `
-									<div style="width:${(json.flowcase.memory_used / json.memory.total) * 100}%; background:var(--primary-color); height:100%;"></div>
-									<div style="width:${Math.max(0, json.memory.percent - ((json.flowcase.memory_used / json.memory.total) * 100))}%; background:#28a745; height:100%;"></div>
-									` : `
-									<div style="width:${json.memory.percent}%; background:#28a745; height:100%;"></div>
-									`}
+									<p style="font-size:12px; color:#1084ff;">
+										Flowcase: ${(json.flowcase.memory_used/1024/1024/1024).toFixed(1)} GB
+									</p>
+									` : ''}
+									<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
+										${json.flowcase && json.flowcase.memory_used !== undefined ? `
+										<div style="width:${(json.flowcase.memory_used / json.memory.total) * 100}%; background:#1084ff; height:100%;"></div>
+										<div style="width:${Math.max(0, json.memory.percent - ((json.flowcase.memory_used / json.memory.total) * 100))}%; background:#28a745; height:100%;"></div>
+										` : `
+										<div style="width:${json.memory.percent}%; background:#28a745; height:100%;"></div>
+										`}
+									</div>
+								</div>
+								<div class="admin-modal-card" style="flex:1; min-width:250px;">
+									<p>Disk Usage</p>
+									<h2 style="margin:10px 0;">${json.disk.percent}%</h2>
+									<p style="font-size:12px; color:var(--text-color-gray); margin-bottom: 5px;">
+										${(json.disk.used/1024/1024/1024).toFixed(1)} GB / ${(json.disk.total/1024/1024/1024).toFixed(1)} GB Total
+									</p>
+									${json.flowcase && json.flowcase.disk_used !== undefined ? `
+									<p style="font-size:12px; color:#1084ff;">
+										Flowcase: ${(json.flowcase.disk_used/1024/1024/1024).toFixed(1)} GB
+									</p>
+									` : ''}
+									<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
+										${json.flowcase && json.flowcase.disk_used !== undefined ? `
+										<div style="width:${(json.flowcase.disk_used / json.disk.total) * 100}%; background:#1084ff; height:100%;"></div>
+										<div style="width:${Math.max(0, json.disk.percent - ((json.flowcase.disk_used / json.disk.total) * 100))}%; background:#ffc107; height:100%;"></div>
+										` : `
+										<div style="width:${json.disk.percent}%; background:#ffc107; height:100%;"></div>
+										`}
+									</div>
+								</div>
+								<div class="admin-modal-card" style="flex:1; min-width:250px;">
+									<p>Docker Containers</p>
+									<h2 style="margin:10px 0;">${json.docker.running_containers} / ${json.docker.total_containers}</h2>
+									<p style="font-size:12px; color:var(--text-color-gray);">Running / Total</p>
 								</div>
 							</div>
-							<div class="admin-modal-card" style="flex:1; min-width:250px;">
-								<p>Disk Usage</p>
-								<h2 style="margin:10px 0;">${json.disk.percent}%</h2>
-								<p style="font-size:12px; color:var(--text-color-gray); margin-bottom: 5px;">
-									${(json.disk.used/1024/1024/1024).toFixed(1)} GB / ${(json.disk.total/1024/1024/1024).toFixed(1)} GB Total
-								</p>
-								${json.flowcase.disk_used ? `
-								<p style="font-size:12px; color:var(--primary-color);">
-									Flowcase: ${(json.flowcase.disk_used/1024/1024/1024).toFixed(1)} GB
-								</p>
-								` : ''}
-								<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
-									${json.flowcase.disk_used ? `
-									<div style="width:${(json.flowcase.disk_used / json.disk.total) * 100}%; background:var(--primary-color); height:100%;"></div>
-									<div style="width:${json.disk.percent - ((json.flowcase.disk_used / json.disk.total) * 100)}%; background:#ffc107; height:100%;"></div>
-									` : `
-									<div style="width:${json.disk.percent}%; background:#ffc107; height:100%;"></div>
-									`}
-								</div>
+							<div style="display: flex; justify-content: flex-end; align-items: center; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+								<span style="font-size: 12px; color: var(--text-color-gray);">
+									Last updated: ${json.last_updated ? new Date(json.last_updated * 1000).toLocaleTimeString() : new Date().toLocaleTimeString()}
+								</span>
 							</div>
-							<div class="admin-modal-card" style="flex:1; min-width:250px;">
-								<p>Docker Containers</p>
-								<h2 style="margin:10px 0;">${json.docker.running_containers} / ${json.docker.total_containers}</h2>
-								<p style="font-size:12px; color:var(--text-color-gray);">Running / Total</p>
+						`;
+					})
+					.catch(err => {
+						let statsContainer = document.getElementById('stats-container');
+						if (statsContainer) {
+							statsContainer.innerHTML = '<div style="color:red;">Error loading stats.</div>';
+						}
+						console.error('Stats load error:', err);
+					});
+
+				// Fetch instances concurrently with stats
+				FetchAdminInstances(function(json) {
+					let instContainer = document.getElementById('instances-container');
+					if (!instContainer) return;
+					
+					// Avoid overwriting if user is interacting with checkboxes
+					let anyChecked = false;
+					document.querySelectorAll('.bulk-checkbox-instances').forEach(cb => {
+						if(cb.checked) anyChecked = true;
+					});
+					
+					if (anyChecked) return;
+					
+					let instancesHtml = `
+						${userInfo.permissions.perm_edit_instances ? `
+							<div style="display: flex; gap: 10px; margin-bottom: 10px;">
+								<button class="button-1" style="background:#e05454;" onclick="BulkDelete('instances')">Delete Selected</button>
 							</div>
-						</div>
+						` : ''}
+					<table class="admin-modal-table">
+						<tr>
+							${userInfo.permissions.perm_edit_instances ? `<th style="width: 40px; text-align: center;"><input type="checkbox" onclick="document.querySelectorAll('.bulk-checkbox-instances').forEach(cb => cb.checked = this.checked)"></th>` : ''}
+							<th>Name</th>
+							<th>Username</th>
+							<th>Creation Time</th>
+							<th>Internal IP</th>
+							${userInfo.permissions.perm_edit_instances ? `<th>Actions</th>` : ''}
+						</tr>
+						${json["instances"].map(instance => `
+							<tr>
+								${userInfo.permissions.perm_edit_instances ? `<td style="text-align: center;"><input type="checkbox" class="bulk-checkbox-instances" value="${instance.id}"></td>` : ''}
+								<td><div><img src="${instance.droplet.image_path ? instance.droplet.image_path : '/static/img/droplet_default.jpg'}"><p>${instance.droplet.display_name}</p></div></td>
+								<td>${instance.user.username}</td>
+								<td>${instance.created_at}</td>
+								<td>${instance.ip}</td>
+								${userInfo.permissions.perm_edit_instances ? `<td class="admin-modal-table-actions">
+									<i class="fas fa-trash" onclick="AdminDeleteInstance('${instance.id}')"></i>
+								</td>` : ''}
+							</tr>
+						`).join('')}
+					</table>
 					`;
+					instContainer.innerHTML = instancesHtml;
 				});
-			break;
+			}
 			
-		case 'scheduled_tasks':
+			// Initial load
+			loadStats();
+			
+			// Auto-refresh every 5 seconds
+			window.statsRefreshInterval = setInterval(loadStats, 5000);
+			break;
+		case 'scheduler':
 			header.innerText = "Scheduled Tasks";
 			subtext.innerText = "Configure automatic Docker pruning and idle instance shutdowns.";
 			content.innerHTML = '<div style="text-align:center;">Loading settings...</div>';
@@ -2154,7 +2210,7 @@ function AdminDeleteInstance(instance_id)
 				CreateNotification("Instance deleted successfully.", "success");
 				//Update instances
 				FetchAdminInstances(function(json) {
-					AdminChangeTab('instances');
+					AdminChangeTab(currentTab || 'stats');
 				});
 
 				GetInstances();
