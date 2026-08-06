@@ -62,9 +62,21 @@ def initialize_database_and_setup():
 	except Exception:
 		db.session.rollback()
 		
+	try:
+		db.session.execute(db.text("ALTER TABLE droplet ADD COLUMN save_mode VARCHAR(255) DEFAULT 'commit'"))
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+		
+	try:
+		db.session.execute(db.text("ALTER TABLE droplet ADD COLUMN save_paths TEXT"))
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+
 	from utils.setup import initialize_app
 	from flask import current_app
 	initialize_app(current_app) 
 
 	from utils.scheduler import start_scheduler
-	start_scheduler(current_app)
+	start_scheduler(current_app._get_current_object())
