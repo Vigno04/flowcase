@@ -673,6 +673,15 @@
                 });
             }
 
+            {% if current_user.has_permission("perm_admin_panel") %}
+            modalButtons.innerHTML += `
+                <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
+                    <input type="checkbox" id="run-as-root" name="run_as_root" style="margin-right: 8px;">
+                    <label for="run-as-root" style="color: white; font-size: 14px;">Run as Root (Admin)</label>
+                </div>
+            `;
+            {% endif %}
+
             modalButtons.innerHTML += `
                 <button id="model-accept" class="button-1-full" onclick="RequestNewInstance('${dropletId}', this);">Start from scratch</button>
                 <button id="model-reject" class="button-1" onclick="CloseModal()">Cancel</button>
@@ -938,6 +947,15 @@
                 if(rejectBtn) rejectBtn.disabled = true;
             }
             
+            var rootCheckbox = document.getElementById('run-as-root');
+            var runAsRoot = rootCheckbox ? rootCheckbox.checked : false;
+            
+            var payload = {
+                droplet_id: dropletID,
+                resolution: document.getElementById('resolution').value,
+                run_as_root: runAsRoot
+            };
+
             var url = "/api/instance/request";
             var xhr = new XMLHttpRequest();
             xhr.open("POST", url, true);

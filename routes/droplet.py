@@ -315,6 +315,8 @@ def request_new_instance():
 		resolution = request_resolution
 	else:
 		resolution = "1280x720"
+
+	run_as_root = request.json.get('run_as_root', False)
   
 	# List of mounts
 	mounts = []
@@ -333,6 +335,27 @@ def request_new_instance():
 			type="volume"
 		)
 		mounts.append(shared_mount)
+		
+		# Hybrid Saving Volume Mounts
+		if getattr(droplet, 'save_mode', 'commit') == 'volume':
+			save_paths_str = getattr(droplet, 'save_paths', None)
+			if save_paths_str:
+				try:
+					save_paths = json.loads(save_paths_str)
+					for i, path in enumerate(save_paths):
+						vol_name = f"flowcase_volume_{instance.id}_{i}"
+						try:
+							utils.docker.docker_client.volumes.get(vol_name)
+						except docker.errors.NotFound:
+							utils.docker.docker_client.volumes.create(name=vol_name)
+						vol_mount = docker.types.Mount(
+							target=path,
+							source=vol_name,
+							type="volume"
+						)
+						mounts.append(vol_mount)
+				except Exception as e:
+					log("ERROR", f"Failed to parse or create volume mounts: {str(e)}")
 	
 	# Create the container
 	try:
@@ -342,16 +365,20 @@ def request_new_instance():
 		
 		# Create container with the specific network
 		if not isGuacDroplet:
-			container = utils.docker.docker_client.containers.run(
-				image=image_name,
-				name=name,
-				environment={"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution},
-				detach=True,
-				network=network,
-				mem_limit=f"{droplet.container_memory}000000",
-				cpu_shares=int(droplet.container_cores * 1024),
-				mounts=mounts if mounts else None,
-			)
+			run_kwargs = {
+				"image": image_name,
+				"name": name,
+				"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution},
+				"detach": True,
+				"network": network,
+				"mem_limit": f"{droplet.container_memory}000000",
+				"cpu_shares": int(droplet.container_cores * 1024),
+				"mounts": mounts if mounts else None,
+			}
+			if is_admin and run_as_root:
+				run_kwargs["user"] = "root"
+				
+			container = utils.docker.docker_client.containers.run(**run_kwargs)
 		else: # Guacamole droplet
 			container = utils.docker.docker_client.containers.run(
 				image=f"ghcr.io/vigno04/flowcase-guac:{__version__}",
@@ -756,6 +783,24 @@ def stop_instance(instance_id: str):
 		log("ERROR", f"Error removing container: {str(e)}")
 		pass
 
+	# Delete hybrid saving volumes if applicable
+	if utils.docker.docker_client:
+		droplet = Droplet.query.filter_by(id=instance.droplet_id).first()
+		if droplet and getattr(droplet, 'save_mode', 'commit') == "volume":
+			save_paths_str = getattr(droplet, 'save_paths', None)
+			if save_paths_str:
+				try:
+					save_paths = json.loads(save_paths_str)
+					for i in range(len(save_paths)):
+						vol_name = f"flowcase_volume_{instance.id}_{i}"
+						try:
+							vol = utils.docker.docker_client.volumes.get(vol_name)
+							vol.remove(force=True)
+						except:
+							pass
+				except:
+					pass
+
 	# Also delete the snapshot image if it exists
 	if instance.snapshot_image_name and utils.docker.docker_client:
 		try:
@@ -780,15 +825,25 @@ def background_save_task(app, instance_id, custom_name):
 			instance = DropletInstance.query.filter_by(id=instance_id).first()
 			if not instance:
 				return
+			
+			droplet = Droplet.query.filter_by(id=instance.droplet_id).first()
+			save_mode = getattr(droplet, 'save_mode', 'commit')
+			
 			container_name = f"flowcase_generated_{instance.id}"
 			container = utils.docker.docker_client.containers.get(container_name)
 			
-			snapshot_name = f"flowcase_save_{instance.id}"
-			container.commit(repository=snapshot_name)
+			if save_mode == "commit":
+				snapshot_name = f"flowcase_save_{instance.id}"
+				container.commit(repository=snapshot_name)
+				instance.snapshot_image_name = snapshot_name
+			elif save_mode == "volume":
+				# In volume mode, state is already saved in the volumes.
+				# We just need to remove the container.
+				pass
+			
 			container.remove(force=True)
 			
 			instance.status = "saved"
-			instance.snapshot_image_name = snapshot_name
 			if custom_name:
 				instance.custom_name = custom_name
 			

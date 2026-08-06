@@ -182,7 +182,9 @@ def api_admin_droplets():
 			"server_port": droplet.server_port,
 			"server_username": droplet.server_username,
 			"server_password": "********************************" if droplet.server_password else None,
-			"restricted_groups": droplet.restricted_groups
+			"restricted_groups": droplet.restricted_groups,
+			"save_mode": droplet.save_mode,
+			"save_paths": __import__('json').loads(droplet.save_paths) if droplet.save_paths else []
 		})
  
 	return jsonify(response)
@@ -259,6 +261,14 @@ def api_admin_edit_droplet():
 		droplet.container_network = request.json.get('container_network')
 		if not droplet.container_network:
 			droplet.container_network = None
+			
+		droplet.save_mode = request.json.get('save_mode', 'commit')
+		save_paths = request.json.get('save_paths', [])
+		import json
+		if save_paths:
+			droplet.save_paths = json.dumps(save_paths)
+		else:
+			droplet.save_paths = None
   
 	elif droplet.droplet_type == "vnc" or droplet.droplet_type == "rdp" or droplet.droplet_type == "ssh":
 		droplet.server_ip = request.json.get('server_ip')
