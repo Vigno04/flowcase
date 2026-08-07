@@ -390,6 +390,8 @@ def request_new_instance():
 			}
 			if is_admin and run_as_root:
 				run_kwargs["user"] = "root"
+			else:
+				run_kwargs["user"] = "1000"
 				
 			container = utils.docker.docker_client.containers.run(**run_kwargs)
 		else: # Guacamole droplet
@@ -1126,7 +1128,7 @@ def save_as_instance(instance_id: str):
 		status = "duplicating" if is_duplicate else "saving"
 		
 		new_instance_id = str(uuid.uuid4())
-		new_instance = DropletInstance(id=new_instance_id, droplet_id=instance.droplet_id, user_id=current_user.id, status=status, custom_name=custom_name)
+		new_instance = DropletInstance(id=new_instance_id, droplet_id=instance.droplet_id, user_id=current_user.id, status=status, custom_name=custom_name, run_as_root=instance.run_as_root)
 		db.session.add(new_instance)
 		
 		# Set original instance to duplicating/terminating so UI doesn't allow interaction and it doesn't show up twice
@@ -1263,6 +1265,8 @@ def resume_instance(instance_id: str):
 				
 		if is_admin and instance.run_as_root:
 			run_kwargs["user"] = "root"
+		else:
+			run_kwargs["user"] = "1000"
 
 		# Start container from snapshot
 		container = utils.docker.docker_client.containers.run(**run_kwargs)
