@@ -658,6 +658,23 @@
                 <b>Total Snapshot Size:</b> ${snapSize}
             `;
 
+            let headerActions = document.getElementById('model-header-actions');
+            if (headerActions) {
+                headerActions.innerHTML = '';
+                {% if current_user.has_permission("perm_admin_panel") %}
+                let isChecked = instance.run_as_root ? 'checked' : '';
+                headerActions.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label for="info-run-as-root" style="color: white; font-size: 14px; margin: 0; cursor: pointer;">Run as Root</label>
+                        <label class="switch" style="margin: 0;">
+                            <input type="checkbox" id="info-run-as-root" onchange="UpdateInstanceSettings('${instanceId}', this.checked)" ${isChecked}>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                `;
+                {% endif %}
+            }
+
             let modalButtons = document.querySelector('.modal-buttons');
             modalButtons.innerHTML = `
                 <button id="model-reject" class="button-1-full" onclick="CloseModal()">Close</button>
@@ -902,6 +919,30 @@
 
         function ExportInstance(saveId) {
             CreateNotification("Export functionality is coming soon!", "info");
+        }
+
+        function UpdateInstanceSettings(saveId, runAsRoot) {
+            var url = "/api/instance/" + saveId + "/settings";
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", url, true);
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4) {
+                    var json = JSON.parse(xhr.responseText);
+                    if (json["success"] == true) {
+                        CreateNotification("Instance settings updated", "success");
+                        let instance = currentInstances.find(i => i.id === saveId);
+                        if (instance) {
+                            instance.run_as_root = runAsRoot;
+                        }
+                    } else {
+                        CreateNotification(json["error"] || "Error updating settings", "error");
+                        let checkbox = document.getElementById('info-run-as-root');
+                        if (checkbox) checkbox.checked = !runAsRoot; // Revert visually
+                    }
+                }
+            };
+            xhr.send(JSON.stringify({ "run_as_root": runAsRoot }));
         }
     </script>
     <style>

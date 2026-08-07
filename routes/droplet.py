@@ -182,6 +182,7 @@ def get_instances():
 			"status": instance.status,
 			"custom_name": instance.custom_name,
 			"snapshot_image_name": instance.snapshot_image_name,
+			"run_as_root": instance.run_as_root,
 			"snapshot_size": snapshot_size,
 			"snapshot_created": snapshot_created,
 			"base_image_size": base_image_size,
@@ -302,6 +303,11 @@ def request_new_instance():
 
 	# Create a new instance
 	instance = DropletInstance(droplet_id=droplet_id, user_id=current_user.id, status="running")
+	
+	run_as_root = request.json.get('run_as_root', False)
+	if is_admin and run_as_root:
+		instance.run_as_root = True
+		
 	db.session.add(instance)
 	db.session.commit()
  
@@ -703,6 +709,43 @@ def droplet(instance_id: str):
 	has_snapshot = bool(instance.snapshot_image_name) or bool(instance.custom_name)
 
 	return render_template('droplet.html', instance_id=instance_id, droplet=droplet, guacamole=using_guac, guac_token=guac_token, instance_status=instance.status, has_snapshot=has_snapshot)
+
+@droplet_bp.route('/api/instance/<string:instance_id>/settings', methods=['POST'])
+@login_required
+def update_instance_settings(instance_id: str):
+	instance = DropletInstance.query.filter_by(id=instance_id).first()
+	if not instance:
+		return jsonify({"success": False, "error": "Instance not found"}), 404
+
+	if instance.user_id != current_user.id:
+		is_admin = False
+		user_groups = current_user.get_groups()
+		for group_id in user_groups:
+			group = Group.query.filter_by(id=group_id).first()
+			if group and group.display_name == "Admin":
+				is_admin = True
+				break
+		if not is_admin:
+			return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+	# Ensure the user making the change is actually an admin if they're toggling run_as_root
+	is_admin = False
+	for group_id in current_user.get_groups():
+		group = Group.query.filter_by(id=group_id).first()
+		if group and group.display_name == "Admin":
+			is_admin = True
+			break
+
+	if not is_admin:
+		return jsonify({"success": False, "error": "Only admins can change these settings"}), 403
+
+	run_as_root = request.json.get("run_as_root")
+	if run_as_root is not None:
+		instance.run_as_root = bool(run_as_root)
+
+	db.session.commit()
+	return jsonify({"success": True, "message": "Settings updated successfully"})
+
 
 @droplet_bp.route('/api/instance/<string:instance_id>/exit', methods=['GET'])
 @login_required
@@ -1199,17 +1242,30 @@ def resume_instance(instance_id: str):
 	try:
 		network = utils.docker.get_network_for_droplet(droplet)
 		
+		run_kwargs = {
+			"image": image_name,
+			"name": name,
+			"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution},
+			"detach": True,
+			"network": network,
+			"mem_limit": f"{droplet.container_memory}000000",
+			"cpu_shares": int(droplet.container_cores * 1024),
+			"mounts": mounts if mounts else None,
+		}
+		
+		# Check admin for run_as_root
+		is_admin = False
+		for group_id in current_user.get_groups():
+			group = Group.query.filter_by(id=group_id).first()
+			if group and group.display_name == "Admin":
+				is_admin = True
+				break
+				
+		if is_admin and instance.run_as_root:
+			run_kwargs["user"] = "root"
+
 		# Start container from snapshot
-		container = utils.docker.docker_client.containers.run(
-			image=image_name,
-			name=name,
-			environment={"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution},
-			detach=True,
-			network=network,
-			mem_limit=f"{droplet.container_memory}000000",
-			cpu_shares=int(droplet.container_cores * 1024),
-			mounts=mounts if mounts else None,
-		)
+		container = utils.docker.docker_client.containers.run(**run_kwargs)
 		
 		default_network_name = os.environ.get("FLOWCASE_NETWORK", "flowcase_default_network")
 		if network != default_network_name:

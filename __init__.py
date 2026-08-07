@@ -104,6 +104,12 @@ def initialize_database_and_setup():
 	except Exception:
 		db.session.rollback()
 
+	try:
+		db.session.execute(db.text("ALTER TABLE droplet_instance ADD COLUMN run_as_root BOOLEAN NOT NULL DEFAULT 0"))
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+
 	from utils.setup import initialize_app
 	from flask import current_app
 	initialize_app(current_app) 

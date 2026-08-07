@@ -30,3 +30,4 @@ class DropletInstance(db.Model):
 	status = db.Column(db.String(20), default="running")
 	custom_name = db.Column(db.String(255), nullable=True)
 	snapshot_image_name = db.Column(db.String(255), nullable=True) 
+	run_as_root = db.Column(db.Boolean, default=False)
