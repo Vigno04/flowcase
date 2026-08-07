@@ -424,15 +424,19 @@ def request_new_instance():
 				elif container.status in ['exited', 'dead']:
 					log("ERROR", f"Container {name} failed to start, status: {container.status}")
 					# Get container logs for debugging
+					logs_str = ""
 					try:
-						logs = container.logs().decode('utf-8')[-1000:]  # Last 1000 chars
-						log("ERROR", f"Container logs: {logs}")
+						logs_str = container.logs().decode('utf-8')[-1000:]  # Last 1000 chars
+						log("ERROR", f"Container logs: {logs_str}")
 					except:
 						pass
 					container.remove(force=True)
 					db.session.delete(instance)
 					db.session.commit()
-					return jsonify({"success": False, "error": f"Container failed to start (status: {container.status})"}), 500
+					error_msg = f"Container failed to start (status: {container.status})"
+					if logs_str:
+						error_msg = logs_str.strip()
+					return jsonify({"success": False, "error": error_msg}), 500
 			except Exception as e:
 				log("ERROR", f"Error checking container status: {str(e)}")
 				container.remove(force=True)
