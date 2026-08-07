@@ -296,10 +296,15 @@ function AdminChangeTab(tab, element = null)
 			});
 
 			content.innerHTML = `
-				${json["registry_locked"] ? '' : 
+				${json["registry_locked"] ? 
+					`<div class="admin-registry-add" style="display: flex; gap: 10px; align-items: center; justify-content: flex-end;">
+						<button class="button-1" onclick="AdminSyncRegistry()"><i class="fas fa-sync-alt"></i> Sync Registry</button>
+					</div>
+					<hr>` : 
 					`<div class="admin-registry-add" style="display: flex; gap: 10px; align-items: center;">
 						<input type="text" placeholder="URL" id="admin-registry-url">
 						<button class="button-1-full" onclick="AdminAddRegistry()">Add Registry</button>
+						<button class="button-1" onclick="AdminSyncRegistry()"><i class="fas fa-sync-alt"></i> Sync</button>
 						<label style="display: flex; align-items: center; cursor: pointer; white-space: nowrap;">
 							<input type="checkbox" id="registry-compat-filter" checked onchange="window.RenderRegistryDroplets()" style="margin-right: 5px;">
 							Show only compatible ones
@@ -871,7 +876,8 @@ function AdminChangeTab(tab, element = null)
 								<td>${instance.created_at}</td>
 								<td>${instance.ip}</td>
 								${userInfo.permissions.perm_edit_instances ? `<td class="admin-modal-table-actions">
-									<i class="fas fa-trash" onclick="AdminDeleteInstance('${instance.id}')"></i>
+									${instance.status === "running" ? `<i class="fas fa-save" style="margin-right:8px;" title="Save and Close" onclick="AdminSaveInstance('${instance.id}')"></i>` : ''}
+									<i class="fas fa-trash" title="Destroy" onclick="AdminDeleteInstance('${instance.id}')"></i>
 								</td>` : ''}
 							</tr>
 						`).join('')}
@@ -922,6 +928,28 @@ function AdminChangeTab(tab, element = null)
 								<input type="number" id="settings-idle-timeout" value="${s.idle_timeout_mins}" style="width:100%; padding:8px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); color:white; border-radius:8px;">
 							</div>
 							
+							<div class="admin-modal-card" style="padding: 16px; margin-top:20px;">
+								<h3 style="margin:0 0 10px;">Registry Update Schedule</h3>
+								<p class="admin-modal-help-text">Automatically sync the registry in the background.</p>
+								<select id="settings-registry-frequency" style="width:100%; padding: 8px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); color: white; border-radius: 8px;">
+									<option value="never" ${s.update_registry_frequency === 'never' ? 'selected' : ''}>Never</option>
+									<option value="daily" ${s.update_registry_frequency === 'daily' ? 'selected' : ''}>Daily</option>
+									<option value="twice_a_day" ${s.update_registry_frequency === 'twice_a_day' ? 'selected' : ''}>Twice a day</option>
+									<option value="weekly" ${s.update_registry_frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
+								</select>
+							</div>
+							
+							<div class="admin-modal-card" style="padding: 16px; margin-top:20px;">
+								<h3 style="margin:0 0 10px;">Docker Images Update Schedule</h3>
+								<p class="admin-modal-help-text">Automatically pull the latest Docker images for your droplets.</p>
+								<select id="settings-images-frequency" style="width:100%; padding: 8px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); color: white; border-radius: 8px;">
+									<option value="never" ${s.update_images_frequency === 'never' ? 'selected' : ''}>Never</option>
+									<option value="daily" ${s.update_images_frequency === 'daily' ? 'selected' : ''}>Daily</option>
+									<option value="twice_a_day" ${s.update_images_frequency === 'twice_a_day' ? 'selected' : ''}>Twice a day</option>
+									<option value="weekly" ${s.update_images_frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
+								</select>
+							</div>
+							
 							<div style="margin-top: 20px;">
 								<button class="button-1-full" onclick="SaveAdminSettings()">Save Settings</button>
 							</div>
@@ -935,6 +963,8 @@ function AdminChangeTab(tab, element = null)
 function SaveAdminSettings() {
 	var data = {
 		prune_frequency: document.getElementById('settings-prune-frequency').value,
+		update_registry_frequency: document.getElementById('settings-registry-frequency').value,
+		update_images_frequency: document.getElementById('settings-images-frequency').value,
 		auto_shutdown_enabled: document.getElementById('settings-auto-shutdown').checked,
 		idle_timeout_mins: document.getElementById('settings-idle-timeout').value
 	};
@@ -1382,6 +1412,38 @@ function AdminDeleteRegistry(registry_id)
 	xhr.send(data);
 
 	console.log("Deleting registry...");
+}
+
+function AdminSyncRegistry()
+{
+	CreateNotification("Syncing registries, please wait...", "info");
+	var url = "/api/admin/registry/sync";
+	var xhr = new XMLHttpRequest();
+	xhr.open("POST", url, true);
+	xhr.setRequestHeader("Content-Type", "application/json");
+	xhr.onreadystatechange = function () {
+		if (xhr.readyState === 4) {
+			var json = JSON.parse(xhr.responseText);
+			if (json["success"] == true) {
+				CreateNotification("Registries synced successfully.", "success");
+
+				//Update registry
+				FetchAdminRegistry(function(json) {
+					AdminChangeTab('registry');
+				});
+			}
+			else
+			{
+				if (json["error"] != null) {
+					CreateNotification(json["error"], "error");
+				}
+				else {
+					CreateNotification("An error occurred while syncing registries. Please try again later.", "error");
+				}
+			}
+		}
+	};
+	xhr.send();
 }
 
 /**
@@ -2230,6 +2292,45 @@ function AdminDeleteInstance(instance_id)
 	xhr.send(data);
 
 	console.log("Deleting instance...");
+}
+
+function AdminSaveInstance(instance_id)
+{
+	if (!confirm("Are you sure you want to save and close this instance?")) {
+		return;
+	}
+
+	var url = "/api/instance/" + instance_id + "/save";
+	var xhr = new XMLHttpRequest();
+	xhr.open("POST", url, true);
+	xhr.setRequestHeader("Content-Type", "application/json");
+	xhr.onreadystatechange = function () {
+		if (xhr.readyState === 4) {
+			var json = JSON.parse(xhr.responseText);
+			if (json["success"] == true) {
+				CreateNotification("Instance save initiated.", "success");
+				//Update instances
+				FetchAdminInstances(function(json) {
+					AdminChangeTab(currentTab || 'stats');
+				});
+
+				GetInstances();
+			}
+			else
+			{
+				if (json["error"] != null) {
+					CreateNotification(json["error"], "error");
+				}
+				else {
+					CreateNotification("An error occurred while saving the instance. Please try again later.", "error");
+				}
+			}
+		}
+	};
+	var data = JSON.stringify({});
+	xhr.send(data);
+
+	console.log("Saving instance...");
 }
 
 function FetchImageStatus()

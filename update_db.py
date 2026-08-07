@@ -40,6 +40,24 @@ except sqlite3.OperationalError as e:
     else:
         print(f"❌ Error updating droplet: {e}")
 
+try:
+    cur.execute("ALTER TABLE registry ADD COLUMN cached_info TEXT")
+    print("✅ Added 'cached_info' column to 'registry' table.")
+except sqlite3.OperationalError as e:
+    if "duplicate column name" in str(e).lower():
+        print("ℹ️ Column 'cached_info' already exists in 'registry' table.")
+    else:
+        print(f"❌ Error updating registry: {e}")
+
+try:
+    cur.execute("ALTER TABLE registry ADD COLUMN cached_droplets TEXT")
+    print("✅ Added 'cached_droplets' column to 'registry' table.")
+except sqlite3.OperationalError as e:
+    if "duplicate column name" in str(e).lower():
+        print("ℹ️ Column 'cached_droplets' already exists in 'registry' table.")
+    else:
+        print(f"❌ Error updating registry: {e}")
+
 conn.commit()
 conn.close()
 print("Database update complete! You can now restart Flowcase to test.")

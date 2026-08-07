@@ -75,7 +75,10 @@
 
         <div class="modal" id="modal">
             <div class="modal-content">
-                <h2 id="model-header"></h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h2 id="model-header" style="margin-bottom: 0;"></h2>
+                    <div id="model-header-actions"></div>
+                </div>
                 <p id="model-subtext"></p>
                 <div class="modal-buttons">
                     <button id="model-accept" class="button-1-full">Launch</button>
@@ -437,8 +440,7 @@
             savedInstancesDiv.innerHTML = "";
 
             let runningInstances = json["instances"].filter(i => i.status === "running");
-            let savedInstances = json["instances"].filter(i => i.snapshot_image_name != null);
-
+            let savedInstances = json["instances"].filter(i => i.status === "saved" || i.status === "saving" || i.status === "duplicating" || (i.status === "running" && (i.custom_name || i.snapshot_image_name)));
             //set div to hidden if no running instances
             if (runningInstances.length == 0) {
                 instancesDiv.style.display = "none";
@@ -449,7 +451,7 @@
             }
 
             runningInstances.forEach(instance => {
-                let hasSave = instance.snapshot_image_name ? true : false;
+                let hasSave = (instance.snapshot_image_name || instance.custom_name) ? true : false;
                 let secondBtn = hasSave
                     ? `<p class="droplet-instance-popup-close" onclick="CloseAndSaveInstance('${instance.id}', this)">Close</p>`
                     : `<p class="droplet-instance-popup-destroy" onclick="RequestDestroyInstance('${instance.id}')">Destroy</p>`;
@@ -505,12 +507,22 @@
                         : dateStr;
 
                     let isRunning = instance.status === "running";
-                    let clickAction = isRunning ? "" : `onclick="ResumeInstance('${instance.id}')"`;
-                    let opacityStyle = isRunning ? "opacity: 0.5; cursor: not-allowed;" : "";
+                    let isSaving = instance.status === "saving";
+                    let isDuplicating = instance.status === "duplicating";
+                    let isPending = isSaving || isDuplicating;
+                    let clickAction = (isRunning || isPending) ? "" : `onclick="ResumeInstance('${instance.id}')"`;
+                    let opacityStyle = (isRunning || isPending) ? "opacity: 0.5; cursor: not-allowed;" : "";
                     
-                    let dateDisplay = isRunning 
-                        ? `<p style="margin: 0; font-size: 12px; color: var(--primary-color); text-align: center; font-weight: bold;">Currently Running</p>`
-                        : `<p style="margin: 0; font-size: 12px; color: var(--text-color-gray); text-align: center;">Saved: ${displayDate}</p>`;
+                    let dateDisplay = "";
+                    if (isRunning) {
+                        dateDisplay = `<p style="margin: 0; font-size: 12px; color: var(--primary-color); text-align: center; font-weight: bold;">Currently Running</p>`;
+                    } else if (isSaving) {
+                        dateDisplay = `<p style="margin: 0; font-size: 12px; color: #ffc107; text-align: center; font-weight: bold;"><i class="fas fa-spinner fa-spin"></i> Saving...</p>`;
+                    } else if (isDuplicating) {
+                        dateDisplay = `<p style="margin: 0; font-size: 12px; color: #17a2b8; text-align: center; font-weight: bold;"><i class="fas fa-spinner fa-spin"></i> Duplicating...</p>`;
+                    } else {
+                        dateDisplay = `<p style="margin: 0; font-size: 12px; color: var(--text-color-gray); text-align: center;">Saved: ${displayDate}</p>`;
+                    }
 
                     savedInstancesDiv.innerHTML += `
                     <div class="droplet" style="position: relative; ${opacityStyle}" ${clickAction}>
@@ -553,6 +565,12 @@
                 } else if (autoSave) {
                     CloseAndSaveInstance(targetId, btn, true); // true = skipConfirm
                 }
+            }
+            
+            // Poll for saving instances
+            if (json["instances"].some(i => i.status === "saving" || i.status === "duplicating")) {
+                if (window._pollInstancesTimeout) clearTimeout(window._pollInstancesTimeout);
+                window._pollInstancesTimeout = setTimeout(GetInstances, 3000);
             }
         }
 
@@ -617,6 +635,8 @@
 
         function CloseModal() {
             modal.classList.remove('active');
+            let headerActions = document.getElementById('model-header-actions');
+            if (headerActions) headerActions.innerHTML = '';
         }
 
         function ShowInstanceInfo(instanceId) {
@@ -673,15 +693,21 @@
                 });
             }
 
-            {% if current_user.has_permission("perm_admin_panel") %}
-            modalButtons.innerHTML += `
-                <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
-                    <input type="checkbox" id="run-as-root" name="run_as_root" style="margin-right: 8px;">
-                    <label for="run-as-root" style="color: white; font-size: 14px;">Run as Root (Admin)</label>
-                </div>
-            `;
-            {% endif %}
-
+            let headerActions = document.getElementById('model-header-actions');
+            if (headerActions) {
+                headerActions.innerHTML = '';
+                {% if current_user.has_permission("perm_admin_panel") %}
+                headerActions.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label for="run-as-root" style="color: white; font-size: 14px; margin: 0; cursor: pointer;">Run as Root</label>
+                        <label class="switch" style="margin: 0;">
+                            <input type="checkbox" id="run-as-root" name="run_as_root">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                `;
+                {% endif %}
+            }
             modalButtons.innerHTML += `
                 <button id="model-accept" class="button-1-full" onclick="RequestNewInstance('${dropletId}', this);">Start from scratch</button>
                 <button id="model-reject" class="button-1" onclick="CloseModal()">Cancel</button>
@@ -952,7 +978,7 @@
             
             var payload = {
                 droplet_id: dropletID,
-                resolution: document.getElementById('resolution').value,
+                resolution: window.innerWidth + "x" + window.innerHeight,
                 run_as_root: runAsRoot
             };
 
@@ -983,7 +1009,7 @@
                     }
                 }
             };
-            var data = JSON.stringify({"droplet_id": dropletID, "resolution": window.innerWidth + "x" + window.innerHeight});
+            var data = JSON.stringify(payload);
             xhr.send(data);
 
             console.log("Requesting new instance for droplet " + dropletID + "...");

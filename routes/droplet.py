@@ -348,6 +348,13 @@ def request_new_instance():
 							utils.docker.docker_client.volumes.get(vol_name)
 						except docker.errors.NotFound:
 							utils.docker.docker_client.volumes.create(name=vol_name)
+							# Set correct ownership for newly created volume so container user (uid 1000) can write to it
+							utils.docker.docker_client.containers.run(
+								image="alpine",
+								command="chown 1000:1000 /mnt",
+								mounts=[docker.types.Mount(target="/mnt", source=vol_name, type="volume")],
+								remove=True
+							)
 						vol_mount = docker.types.Mount(
 							target=path,
 							source=vol_name,
@@ -687,7 +694,11 @@ def droplet(instance_id: str):
 		using_guac = True
 		guac_token = generate_guac_token(droplet, current_user)
 
-	return render_template('droplet.html', instance_id=instance_id, droplet=droplet, guacamole=using_guac, guac_token=guac_token, instance_status=instance.status, has_snapshot=bool(instance.snapshot_image_name))
+	# Determine if instance has a persistent save (commit or volume based)
+	# If an instance has a custom_name, it means it is a saved instance (or resumed from one)
+	has_snapshot = bool(instance.snapshot_image_name) or bool(instance.custom_name)
+
+	return render_template('droplet.html', instance_id=instance_id, droplet=droplet, guacamole=using_guac, guac_token=guac_token, instance_status=instance.status, has_snapshot=has_snapshot)
 
 @droplet_bp.route('/api/instance/<string:instance_id>/exit', methods=['GET'])
 @login_required
@@ -720,8 +731,27 @@ def exit_instance(instance_id: str):
 		os.remove(f"/flowcase/nginx/containers.d/{instance.id}.conf")
 		reload_nginx()
 
-	if instance.snapshot_image_name:
+	# Determine if this instance has a persistent save (commit-based or volume-based)
+	has_save = bool(instance.snapshot_image_name) or bool(instance.custom_name)
+
+	if has_save:
 		# It was a resumed instance. Revert to saved state.
+		# Clean up any working volumes (they contain unsaved changes)
+		droplet = Droplet.query.filter_by(id=instance.droplet_id).first()
+		if droplet and getattr(droplet, 'save_mode', 'commit') == 'volume':
+			save_paths_str = getattr(droplet, 'save_paths', None)
+			if save_paths_str:
+				try:
+					save_paths = json.loads(save_paths_str)
+					for i, path in enumerate(save_paths):
+						working_vol_name = f"flowcase_volume_{instance.id}_{i}_working"
+						try:
+							utils.docker.docker_client.volumes.get(working_vol_name).remove(force=True)
+							log("INFO", f"Removed working volume {working_vol_name} (exit without saving)")
+						except:
+							pass
+				except:
+					pass
 		instance.status = "saved"
 		db.session.commit()
 		return jsonify({"success": True, "message": "Instance exited, reverting to last save"})
@@ -837,9 +867,40 @@ def background_save_task(app, instance_id, custom_name):
 				container.commit(repository=snapshot_name)
 				instance.snapshot_image_name = snapshot_name
 			elif save_mode == "volume":
-				# In volume mode, state is already saved in the volumes.
-				# We just need to remove the container.
-				pass
+				# Copy data from working volumes back to originals
+				save_paths_str = getattr(droplet, 'save_paths', None)
+				if save_paths_str:
+					try:
+						save_paths = json.loads(save_paths_str)
+						for i, path in enumerate(save_paths):
+							orig_vol_name = f"flowcase_volume_{instance.id}_{i}"
+							working_vol_name = f"flowcase_volume_{instance.id}_{i}_working"
+							
+							try:
+								utils.docker.docker_client.volumes.get(working_vol_name)
+							except docker.errors.NotFound:
+								# If working volume doesn't exist, this is a fresh instance where the active data is in orig_vol_name.
+								# In this case, we don't need to do any copying because orig_vol_name already has the latest data.
+								continue
+								
+							try:
+								# Clear original and copy working data into it
+								utils.docker.docker_client.containers.run(
+									image="alpine",
+									command="sh -c 'rm -rf /dst/* /dst/.[!.]* 2>/dev/null; cp -a /src/. /dst/'",
+									mounts=[
+										docker.types.Mount(target="/src", source=working_vol_name, type="volume", read_only=True),
+										docker.types.Mount(target="/dst", source=orig_vol_name, type="volume"),
+									],
+									remove=True,
+								)
+								log("INFO", f"Synced working volume {working_vol_name} -> {orig_vol_name}")
+								# Remove working volume
+								utils.docker.docker_client.volumes.get(working_vol_name).remove(force=True)
+							except Exception as e:
+								log("ERROR", f"Failed to sync volume {working_vol_name}: {str(e)}")
+					except Exception as e:
+						log("ERROR", f"Failed to process volume save: {str(e)}")
 			
 			container.remove(force=True)
 			
@@ -862,7 +923,15 @@ def save_instance(instance_id: str):
 		return jsonify({"success": False, "error": "Instance not found"}), 404
 	
 	if instance.user_id != current_user.id:
-		return jsonify({"success": False, "error": "Unauthorized"}), 403
+		is_admin = False
+		user_groups = current_user.get_groups()
+		for group_id in user_groups:
+			group = Group.query.filter_by(id=group_id).first()
+			if group and group.permissions and group.permissions.get("perm_admin_panel") and group.permissions.get("perm_edit_instances"):
+				is_admin = True
+				break
+		if not is_admin:
+			return jsonify({"success": False, "error": "Unauthorized"}), 403
 
 	custom_name = request.json.get("custom_name")
 	
@@ -879,7 +948,7 @@ def save_instance(instance_id: str):
 		log("ERROR", f"Error launching save thread for instance {instance_id}: {str(e)}")
 		return jsonify({"success": False, "error": f"Failed to save instance: {str(e)}"}), 500
 
-def background_save_as_task(app, original_instance_id, new_instance_id):
+def background_save_as_task(app, original_instance_id, new_instance_id, is_duplicate=False):
 	with app.app_context():
 		try:
 			original_instance = DropletInstance.query.filter_by(id=original_instance_id).first()
@@ -887,22 +956,101 @@ def background_save_as_task(app, original_instance_id, new_instance_id):
 			if not original_instance or not new_instance:
 				return
 				
-			container_name = f"flowcase_generated_{original_instance.id}"
-			container = utils.docker.docker_client.containers.get(container_name)
+			droplet = Droplet.query.filter_by(id=original_instance.droplet_id).first()
+			save_mode = getattr(droplet, 'save_mode', 'commit')
 			
 			snapshot_name = f"flowcase_save_{new_instance_id}"
-			container.commit(repository=snapshot_name)
 			
-			new_instance.snapshot_image_name = snapshot_name
+			if save_mode == "commit":
+				if is_duplicate:
+					# Duplicate: simply tag the existing snapshot image
+					orig_image = original_instance.snapshot_image_name
+					if orig_image:
+						try:
+							# Use API to tag the image
+							utils.docker.docker_client.images.get(orig_image).tag(snapshot_name)
+						except Exception as e:
+							log("ERROR", f"Failed to tag duplicate image: {str(e)}")
+				else:
+					# Save As (running session): commit the live container
+					container_name = f"flowcase_generated_{original_instance.id}"
+					try:
+						container = utils.docker.docker_client.containers.get(container_name)
+						container.commit(repository=snapshot_name)
+						container.remove(force=True)
+					except Exception as e:
+						log("ERROR", f"Failed to commit running container: {str(e)}")
+				
+				new_instance.snapshot_image_name = snapshot_name
+
+			elif save_mode == "volume":
+				save_paths_str = getattr(droplet, 'save_paths', None)
+				if save_paths_str:
+					try:
+						save_paths = json.loads(save_paths_str)
+						for i, path in enumerate(save_paths):
+							new_vol_name = f"flowcase_volume_{new_instance_id}_{i}"
+							utils.docker.docker_client.volumes.create(name=new_vol_name)
+							
+							# If running, try to copy from working volume. If it doesn't exist (fresh instance), or if it's a duplicate, copy from original volume.
+							source_vol_name = f"flowcase_volume_{original_instance.id}_{i}"
+							if not is_duplicate:
+								working_vol_name = f"{source_vol_name}_working"
+								try:
+									utils.docker.docker_client.volumes.get(working_vol_name)
+									source_vol_name = working_vol_name
+								except docker.errors.NotFound:
+									pass
+							
+							try:
+								utils.docker.docker_client.containers.run(
+									image="alpine",
+									command="sh -c 'cp -a /src/. /dst/ && chown 1000:1000 /dst'",
+									mounts=[
+										docker.types.Mount(target="/src", source=source_vol_name, type="volume", read_only=True),
+										docker.types.Mount(target="/dst", source=new_vol_name, type="volume"),
+									],
+									remove=True,
+								)
+								log("INFO", f"Duplicated volume data {source_vol_name} -> {new_vol_name}")
+							except Exception as e:
+								log("ERROR", f"Failed to copy volume data {source_vol_name} -> {new_vol_name}: {str(e)}")
+							
+							# If it was a running session, we should clean up the working volume we just copied from
+							if not is_duplicate:
+								try:
+									utils.docker.docker_client.volumes.get(source_vol_name).remove(force=True)
+								except:
+									pass
+					except Exception as e:
+						log("ERROR", f"Failed to process volume duplication: {str(e)}")
+				
+				# If it was a running session, kill the container
+				if not is_duplicate:
+					try:
+						utils.docker.docker_client.containers.get(f"flowcase_generated_{original_instance.id}").remove(force=True)
+					except:
+						pass
+
+			# Set new instance to saved
 			new_instance.status = "saved"
 			
-			container.remove(force=True)
-			
-			if os.path.exists(f"/flowcase/nginx/containers.d/{original_instance.id}.conf"):
-				os.remove(f"/flowcase/nginx/containers.d/{original_instance.id}.conf")
-				reload_nginx()
+			if not is_duplicate:
+				# Cleanup nginx
+				if os.path.exists(f"/flowcase/nginx/containers.d/{original_instance.id}.conf"):
+					os.remove(f"/flowcase/nginx/containers.d/{original_instance.id}.conf")
+					reload_nginx()
 				
-			db.session.delete(original_instance)
+				# If original instance is a fresh instance, delete it.
+				# If it's a resumed instance, revert its status to saved.
+				if not original_instance.custom_name:
+					db.session.delete(original_instance)
+				else:
+					original_instance.status = "saved"
+			else:
+				# Restore old instance status to saved (since we set it to 'saving' temporarily)
+				original_instance.status = "saved"
+
 			db.session.commit()
 		except Exception as e:
 			log("ERROR", f"Error in background save_as for {original_instance_id}: {str(e)}")
@@ -926,16 +1074,20 @@ def save_as_instance(instance_id: str):
 
 	try:
 		import uuid
+		is_duplicate = (instance.status == "saved")
+		
+		status = "duplicating" if is_duplicate else "saving"
+		
 		new_instance_id = str(uuid.uuid4())
-		new_instance = DropletInstance(id=new_instance_id, droplet_id=instance.droplet_id, user_id=current_user.id, status="saving", custom_name=custom_name)
+		new_instance = DropletInstance(id=new_instance_id, droplet_id=instance.droplet_id, user_id=current_user.id, status=status, custom_name=custom_name)
 		db.session.add(new_instance)
 		
-		# Set original instance to saving so UI doesn't allow interaction
-		instance.status = "saving"
+		# Set original instance to duplicating/terminating so UI doesn't allow interaction and it doesn't show up twice
+		instance.status = status if is_duplicate else "terminating"
 		db.session.commit()
 		
 		app = current_app._get_current_object()
-		threading.Thread(target=background_save_as_task, args=(app, instance_id, new_instance_id)).start()
+		threading.Thread(target=background_save_as_task, args=(app, instance_id, new_instance_id, is_duplicate)).start()
 
 		return jsonify({"success": True})
 	except Exception as e:
@@ -962,8 +1114,13 @@ def resume_instance(instance_id: str):
 	
 	name = f"flowcase_generated_{instance.id}"
 	
-	# We use the snapshot image if it exists, otherwise fallback (should not happen for a valid save)
-	image_name = instance.snapshot_image_name if instance.snapshot_image_name else droplet.container_docker_image
+	# We use the snapshot image if it exists, otherwise fallback (should not happen for a valid save unless using volume mode)
+	if instance.snapshot_image_name:
+		image_name = instance.snapshot_image_name
+	else:
+		image_name = droplet.container_docker_image
+		if droplet.container_docker_registry and "docker.io" not in droplet.container_docker_registry:
+			image_name = droplet.container_docker_registry.rstrip("/") + "/" + image_name
 	
 	# The rest of the container launch logic is similar to request_new_instance but without volume mounts
 	resolution = "1280x720" # We might want to save this, but for now default
@@ -983,7 +1140,58 @@ def resume_instance(instance_id: str):
 		type="volume"
 	)
 	mounts.append(shared_mount)
-
+	
+	# Hybrid Saving Volume Mounts
+	if getattr(droplet, 'save_mode', 'commit') == 'volume':
+		save_paths_str = getattr(droplet, 'save_paths', None)
+		if save_paths_str:
+			try:
+				save_paths = json.loads(save_paths_str)
+				for i, path in enumerate(save_paths):
+					orig_vol_name = f"flowcase_volume_{instance.id}_{i}"
+					working_vol_name = f"flowcase_volume_{instance.id}_{i}_working"
+					
+					# Create the working volume
+					try:
+						utils.docker.docker_client.volumes.get(working_vol_name)
+						# If it already exists (leftover), remove and recreate
+						utils.docker.docker_client.volumes.get(working_vol_name).remove(force=True)
+					except docker.errors.NotFound:
+						pass
+					utils.docker.docker_client.volumes.create(name=working_vol_name)
+					
+					# Copy data from original to working volume using a temp container
+					try:
+						orig_exists = True
+						try:
+							utils.docker.docker_client.volumes.get(orig_vol_name)
+						except docker.errors.NotFound:
+							orig_exists = False
+							utils.docker.docker_client.volumes.create(name=orig_vol_name)
+						
+						if orig_exists:
+							utils.docker.docker_client.containers.run(
+								image="alpine",
+								command="sh -c 'cp -a /src/. /dst/ && chown 1000:1000 /dst'",
+								mounts=[
+									docker.types.Mount(target="/src", source=orig_vol_name, type="volume", read_only=True),
+									docker.types.Mount(target="/dst", source=working_vol_name, type="volume"),
+								],
+								remove=True,
+							)
+							log("INFO", f"Cloned volume {orig_vol_name} -> {working_vol_name}")
+					except Exception as e:
+						log("ERROR", f"Failed to clone volume {orig_vol_name}: {str(e)}")
+					
+					# Mount the working copy into the container
+					vol_mount = docker.types.Mount(
+						target=path,
+						source=working_vol_name,
+						type="volume"
+					)
+					mounts.append(vol_mount)
+			except Exception as e:
+				log("ERROR", f"Failed to parse or create volume mounts on resume: {str(e)}")
 	try:
 		network = utils.docker.get_network_for_droplet(droplet)
 		
@@ -1017,9 +1225,13 @@ def resume_instance(instance_id: str):
 			if container.status == 'running':
 				break
 			elif container.status in ['exited', 'dead']:
+				try:
+					logs = container.logs().decode('utf-8')[-1000:]
+					log("ERROR", f"Container failed to resume, logs: {logs}")
+				except:
+					pass
 				container.remove(force=True)
 				return jsonify({"success": False, "error": "Container failed to resume"}), 500
-				
 		if waited_time >= max_wait_time:
 			container.remove(force=True)
 			return jsonify({"success": False, "error": "Container resume timed out"}), 500

@@ -129,6 +129,7 @@ def api_admin_instances():
 				"id": instance.id,
 				"created_at": instance.created_at,
 				"updated_at": instance.updated_at,
+				"status": instance.status,
 				"ip": get_container_ip(container, droplet),
 				"droplet": {
 					"id": droplet.id,
@@ -653,17 +654,15 @@ def api_admin_registry():
 
 	if registry_lock:
 		# Return the locked registry from environment variable
-		try:
-			import requests
-			info = requests.get(f"{registry_lock}/info.json").json()
-			droplets = requests.get(f"{registry_lock}/droplets.json").json()
-		except:
-			info = {
-				"name": "Failed to get info",
-			}
-			droplets = []
-			from utils.logger import log
-			log("ERROR", f"Failed to get registry info from {registry_lock}")
+		from models.setting import SystemSetting
+		import json
+		
+		info_cache = SystemSetting.get('locked_registry_info')
+		droplets_cache = SystemSetting.get('locked_registry_droplets')
+		
+		info = json.loads(info_cache) if info_cache else {"name": "Locked Registry (Not Synced)"}
+		droplets = json.loads(droplets_cache) if droplets_cache else []
+
 		response["registry"].append({
 			"id": "locked",
 			"url": registry_lock,
@@ -672,20 +671,11 @@ def api_admin_registry():
 		})
 	else:
 		# Return registries from database
+		import json
 		registry = Registry.query.all()
 		for r in registry:
-			# Get info
-			try:
-				import requests
-				info = requests.get(f"{r.url}/info.json").json()
-				droplets = requests.get(f"{r.url}/droplets.json").json()
-			except:
-				info = {
-					"name": "Failed to get info",
-				}
-				droplets = []
-				from utils.logger import log
-				log("ERROR", f"Failed to get registry info from {r.url}")
+			info = json.loads(r.cached_info) if r.cached_info else {"name": "Registry (Not Synced)"}
+			droplets = json.loads(r.cached_droplets) if r.cached_droplets else []
 
 			response["registry"].append({
 				"id": r.id,
@@ -695,6 +685,41 @@ def api_admin_registry():
 			})
 
 	return jsonify(response)
+
+@admin_bp.route('/registry/sync', methods=['POST'])
+@login_required
+def api_admin_sync_registry():
+	if not Permissions.check_permission(current_user.id, Permissions.EDIT_REGISTRY):
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+	import os
+	import requests
+	import json
+	from utils.logger import log
+	registry_lock = os.environ.get('FLOWCASE_REGISTRY_LOCK')
+	
+	try:
+		if registry_lock:
+			from models.setting import SystemSetting
+			info = requests.get(f"{registry_lock}/info.json").json()
+			droplets = requests.get(f"{registry_lock}/droplets.json").json()
+			SystemSetting.set('locked_registry_info', json.dumps(info))
+			SystemSetting.set('locked_registry_droplets', json.dumps(droplets))
+		else:
+			registry = Registry.query.all()
+			for r in registry:
+				try:
+					info = requests.get(f"{r.url}/info.json").json()
+					droplets = requests.get(f"{r.url}/droplets.json").json()
+					r.cached_info = json.dumps(info)
+					r.cached_droplets = json.dumps(droplets)
+				except Exception as e:
+					log("ERROR", f"Failed to sync registry {r.url}: {str(e)}")
+			db.session.commit()
+		return jsonify({"success": True})
+	except Exception as e:
+		log("ERROR", f"Failed to sync registry: {str(e)}")
+		return jsonify({"success": False, "error": str(e)}), 500
 
 @admin_bp.route('/registry', methods=['POST', 'DELETE'])
 @login_required
@@ -1150,7 +1175,8 @@ def _update_stats_cache_background():
                         any('flowcase' in tag.lower() or 'vigno04' in tag.lower() for tag in tags)
                     )
                     if is_flowcase_related:
-                        flowcase_disk_used += img.get('Size', 0)
+                        unique_size = img.get('Size', 0) - img.get('SharedSize', 0)
+                        flowcase_disk_used += max(0, unique_size)
                         
                 for vol in df.get('Volumes', []):
                     if vol.get('Name', '').startswith('flowcase_shared_'):
