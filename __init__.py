@@ -74,6 +74,36 @@ def initialize_database_and_setup():
 	except Exception:
 		db.session.rollback()
 
+	try:
+		db.session.execute(db.text("ALTER TABLE sso_config ADD COLUMN disable_classic_login BOOLEAN NOT NULL DEFAULT 0"))
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+
+	try:
+		db.session.execute(db.text("ALTER TABLE user ADD COLUMN sso_subject VARCHAR(255)"))
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+
+	try:
+		db.session.execute(db.text("ALTER TABLE droplet DROP COLUMN container_persistent_profile_path"))
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+
+	try:
+		db.session.execute(db.text("ALTER TABLE registry ADD COLUMN cached_info TEXT"))
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+
+	try:
+		db.session.execute(db.text("ALTER TABLE registry ADD COLUMN cached_droplets TEXT"))
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+
 	from utils.setup import initialize_app
 	from flask import current_app
 	initialize_app(current_app) 
