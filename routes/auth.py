@@ -192,7 +192,7 @@ def logout():
 	response.set_cookie('token', '', expires=0)
 	return response
 
-@auth_bp.route('/droplet_connect', methods=['GET'])
+@auth_bp.route('/droplet_connect', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'])
 def droplet_connect():
 	"""
 	Authenticate droplet connection requests.
