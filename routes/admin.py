@@ -1217,8 +1217,9 @@ def _update_stats_cache_background():
                 cpu_delta = cpu_stats.get('cpu_usage', {}).get('total_usage', 0) - precpu_stats.get('cpu_usage', {}).get('total_usage', 0)
                 system_delta = cpu_stats.get('system_cpu_usage', 0) - precpu_stats.get('system_cpu_usage', 0)
                 if system_delta > 0 and cpu_delta > 0:
+                    import psutil
                     online_cpus = cpu_stats.get('online_cpus', len(cpu_stats.get('cpu_usage', {}).get('percpu_usage', [1])))
-                    flowcase_cpu_percent += (cpu_delta / system_delta) * online_cpus * 100.0
+                    flowcase_cpu_percent += ((cpu_delta / system_delta) * online_cpus * 100.0) / (psutil.cpu_count() or 1)
 
         except Exception as e:
             logger.error(f"Stats background update error: {e}")

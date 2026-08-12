@@ -1247,7 +1247,7 @@ def resume_instance(instance_id: str):
 		run_kwargs = {
 			"image": image_name,
 			"name": name,
-			"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution},
+			"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution, "TZ": os.environ.get("TZ", "UTC")},
 			"detach": True,
 			"network": network,
 			"mem_limit": f"{droplet.container_memory}000000",
