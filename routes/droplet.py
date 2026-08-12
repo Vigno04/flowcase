@@ -381,7 +381,7 @@ def request_new_instance():
 			run_kwargs = {
 				"image": image_name,
 				"name": name,
-				"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution},
+				"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution, "TZ": os.environ.get("TZ", "UTC")},
 				"detach": True,
 				"network": network,
 				"mem_limit": f"{droplet.container_memory}000000",
@@ -398,7 +398,7 @@ def request_new_instance():
 			container = utils.docker.docker_client.containers.run(
 				image=f"ghcr.io/vigno04/flowcase-guac:{__version__}",
 				name=name,
-				environment={"GUAC_KEY": current_user.auth_token[:32]},
+				environment={"GUAC_KEY": current_user.auth_token[:32], "TZ": os.environ.get("TZ", "UTC")},
 				detach=True,
 				network=network,
 			)
