@@ -20,6 +20,8 @@ class Droplet(db.Model):
 	restricted_groups = db.Column(db.String(255), nullable=True)
 	save_mode = db.Column(db.String(20), default="commit")
 	save_paths = db.Column(db.String(1000), nullable=True)
+	custom_timezone = db.Column(db.String(50), nullable=True)
+	custom_language = db.Column(db.String(50), nullable=True)
  
 class DropletInstance(db.Model):
 	id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

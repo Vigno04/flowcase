@@ -327,7 +327,9 @@ def request_new_instance():
 	# List of mounts
 	mounts = []
 
-	tz = os.environ.get("TZ", "UTC")
+	tz = droplet.custom_timezone if droplet.custom_timezone else os.environ.get("TZ", "UTC")
+	lang = droplet.custom_language if droplet.custom_language else os.environ.get("LANG", "en_US.UTF-8")
+	
 	tz_file = f"/usr/share/zoneinfo/{tz}"
 	if os.path.exists(tz_file):
 		mounts.append(docker.types.Mount(target="/etc/localtime", source=tz_file, type="bind", read_only=True))
@@ -386,7 +388,7 @@ def request_new_instance():
 			run_kwargs = {
 				"image": image_name,
 				"name": name,
-				"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution, "TZ": os.environ.get("TZ", "UTC")},
+				"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution, "TZ": tz, "LANG": lang},
 				"detach": True,
 				"network": network,
 				"mem_limit": f"{droplet.container_memory}000000",
@@ -403,7 +405,7 @@ def request_new_instance():
 			container = utils.docker.docker_client.containers.run(
 				image=f"ghcr.io/vigno04/flowcase-guac:{__version__}",
 				name=name,
-				environment={"GUAC_KEY": current_user.auth_token[:32], "TZ": os.environ.get("TZ", "UTC")},
+				environment={"GUAC_KEY": current_user.auth_token[:32], "TZ": tz, "LANG": lang},
 				detach=True,
 				network=network,
 				mounts=mounts if mounts else None,
@@ -1182,7 +1184,9 @@ def resume_instance(instance_id: str):
 
 	mounts = []
 
-	tz = os.environ.get("TZ", "UTC")
+	tz = droplet.custom_timezone if droplet.custom_timezone else os.environ.get("TZ", "UTC")
+	lang = droplet.custom_language if droplet.custom_language else os.environ.get("LANG", "en_US.UTF-8")
+
 	tz_file = f"/usr/share/zoneinfo/{tz}"
 	if os.path.exists(tz_file):
 		mounts.append(docker.types.Mount(target="/etc/localtime", source=tz_file, type="bind", read_only=True))
@@ -1258,7 +1262,7 @@ def resume_instance(instance_id: str):
 		run_kwargs = {
 			"image": image_name,
 			"name": name,
-			"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution, "TZ": os.environ.get("TZ", "UTC")},
+			"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution, "TZ": tz, "LANG": lang},
 			"detach": True,
 			"network": network,
 			"mem_limit": f"{droplet.container_memory}000000",
