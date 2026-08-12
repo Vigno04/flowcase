@@ -327,6 +327,11 @@ def request_new_instance():
 	# List of mounts
 	mounts = []
 
+	tz = os.environ.get("TZ", "UTC")
+	tz_file = f"/usr/share/zoneinfo/{tz}"
+	if os.path.exists(tz_file):
+		mounts.append(docker.types.Mount(target="/etc/localtime", source=tz_file, type="bind", read_only=True))
+
 	# Universal Shared Folder for the user
 	if not isGuacDroplet:
 		shared_volume_name = f"flowcase_shared_{current_user.id}"
@@ -401,6 +406,7 @@ def request_new_instance():
 				environment={"GUAC_KEY": current_user.auth_token[:32], "TZ": os.environ.get("TZ", "UTC")},
 				detach=True,
 				network=network,
+				mounts=mounts if mounts else None,
 			)
 		
 		# If using a non-default network, also connect to the default network for nginx connectivity
@@ -1175,6 +1181,11 @@ def resume_instance(instance_id: str):
 	resolution = "1280x720" # We might want to save this, but for now default
 
 	mounts = []
+
+	tz = os.environ.get("TZ", "UTC")
+	tz_file = f"/usr/share/zoneinfo/{tz}"
+	if os.path.exists(tz_file):
+		mounts.append(docker.types.Mount(target="/etc/localtime", source=tz_file, type="bind", read_only=True))
 
 	# Universal Shared Folder for the user
 	shared_volume_name = f"flowcase_shared_{current_user.id}"
