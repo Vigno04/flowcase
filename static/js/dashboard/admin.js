@@ -1929,6 +1929,8 @@ function ShowEditDropletRegistry(display_name, description, image_path, containe
 		document.getElementById('admin-edit-droplet-docker-image').value = container_docker_image + ":" + selected_tag;
 		document.getElementById('admin-edit-droplet-cores').value = "2";
 		document.getElementById('admin-edit-droplet-memory').value = "2768";
+		document.getElementById('admin-edit-droplet-timezone').value = "";
+		document.getElementById('admin-edit-droplet-language').value = "";
 		
 		// Fix the restricted groups section to show checkboxes instead of an empty input field
 		var groupsContainer = document.querySelector('.admin-user-groups-container');
@@ -1993,6 +1995,16 @@ function ShowEditDroplet(instance_id = null)
 	<div class="admin-modal-card">
 		<p>Image Path</p>
 		<input type="text" id="admin-edit-droplet-image-path" value="${ droplet != null ? droplet.image_path ? droplet.image_path : "" : "" }">
+	</div>
+
+	<div class="admin-modal-card">
+		<p>Custom Timezone</p>
+		<input type="text" id="admin-edit-droplet-timezone" placeholder="e.g. Europe/Rome (Leave blank to use .env)" value="${ droplet != null ? droplet.custom_timezone ? droplet.custom_timezone : "" : "" }">
+	</div>
+
+	<div class="admin-modal-card">
+		<p>Custom Language</p>
+		<input type="text" id="admin-edit-droplet-language" placeholder="e.g. it_IT.UTF-8 (Leave blank to use .env)" value="${ droplet != null ? droplet.custom_language ? droplet.custom_language : "" : "" }">
 	</div>
 
 	<div class="admin-modal-card">
@@ -2209,6 +2221,8 @@ function SaveDroplet(droplet_id = null)
 		"server_port": document.getElementById('admin-edit-droplet-port').value,
 		"server_username": document.getElementById('admin-edit-droplet-username').value,
 		"server_password": document.getElementById('admin-edit-droplet-password').value,
+		"custom_timezone": document.getElementById('admin-edit-droplet-timezone').value,
+		"custom_language": document.getElementById('admin-edit-droplet-language').value,
 		"restricted_groups": selectedGroups
 	});
 	xhr.send(data);

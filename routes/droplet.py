@@ -327,6 +327,13 @@ def request_new_instance():
 	# List of mounts
 	mounts = []
 
+	tz = droplet.custom_timezone if droplet.custom_timezone else os.environ.get("TZ", "UTC")
+	lang = droplet.custom_language if droplet.custom_language else os.environ.get("LANG", "en_US.UTF-8")
+	
+	tz_file = f"/usr/share/zoneinfo/{tz}"
+	if os.path.exists(tz_file):
+		mounts.append(docker.types.Mount(target="/etc/localtime", source=tz_file, type="bind", read_only=True))
+
 	# Universal Shared Folder for the user
 	if not isGuacDroplet:
 		shared_volume_name = f"flowcase_shared_{current_user.id}"
@@ -381,7 +388,7 @@ def request_new_instance():
 			run_kwargs = {
 				"image": image_name,
 				"name": name,
-				"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution},
+				"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution, "TZ": tz, "LANG": lang},
 				"detach": True,
 				"network": network,
 				"mem_limit": f"{droplet.container_memory}000000",
@@ -398,9 +405,10 @@ def request_new_instance():
 			container = utils.docker.docker_client.containers.run(
 				image=f"ghcr.io/vigno04/flowcase-guac:{__version__}",
 				name=name,
-				environment={"GUAC_KEY": current_user.auth_token[:32]},
+				environment={"GUAC_KEY": current_user.auth_token[:32], "TZ": tz, "LANG": lang},
 				detach=True,
 				network=network,
+				mounts=mounts if mounts else None,
 			)
 		
 		# If using a non-default network, also connect to the default network for nginx connectivity
@@ -1176,6 +1184,13 @@ def resume_instance(instance_id: str):
 
 	mounts = []
 
+	tz = droplet.custom_timezone if droplet.custom_timezone else os.environ.get("TZ", "UTC")
+	lang = droplet.custom_language if droplet.custom_language else os.environ.get("LANG", "en_US.UTF-8")
+
+	tz_file = f"/usr/share/zoneinfo/{tz}"
+	if os.path.exists(tz_file):
+		mounts.append(docker.types.Mount(target="/etc/localtime", source=tz_file, type="bind", read_only=True))
+
 	# Universal Shared Folder for the user
 	shared_volume_name = f"flowcase_shared_{current_user.id}"
 	try:
@@ -1247,7 +1262,7 @@ def resume_instance(instance_id: str):
 		run_kwargs = {
 			"image": image_name,
 			"name": name,
-			"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution},
+			"environment": {"DISPLAY": ":1", "VNC_PW": current_user.auth_token, "VNC_RESOLUTION": resolution, "TZ": tz, "LANG": lang},
 			"detach": True,
 			"network": network,
 			"mem_limit": f"{droplet.container_memory}000000",

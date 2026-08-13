@@ -43,16 +43,16 @@
             <nav class="nav">
                 <h1>Flowcase</h1>
                 
-                <div class="nav-tabs" style="display: flex; gap: 24px; position: absolute; left: 50%; transform: translateX(-50%);">
-                    <a href="#" class="nav-tab active" onclick="SwitchDashboardTab('droplets')" id="tab-droplets" style="color: var(--text-color); text-decoration: none; font-size: 16px; font-weight: bold; position: relative; padding: 16px 0;">Droplets</a>
-                    <a href="#" class="nav-tab" onclick="SwitchDashboardTab('saved')" id="tab-saved" style="color: var(--text-color-gray); text-decoration: none; font-size: 16px; font-weight: bold; position: relative; padding: 16px 0;">Saved Instances</a>
+                <div class="nav-tabs">
+                    <a href="#" class="nav-tab active" onclick="SwitchDashboardTab('droplets')" id="tab-droplets">Droplets</a>
+                    <a href="#" class="nav-tab" onclick="SwitchDashboardTab('saved')" id="tab-saved">Saved Instances</a>
                 </div>
 
                 <div class="nav-links">
                     {% if current_user.has_permission("perm_admin_panel") %}
-                    <a href="#" onclick="OpenAdminPanel()"><i class="fas fa-cogs"></i> Admin</a>
+                    <a href="#" onclick="OpenAdminPanel()"><i class="fas fa-cogs"></i><span class="nav-text">Admin</span></a>
                     {% endif %}
-                    <a href="#" class="user-link"><i class="fas fa-user"></i> {{ current_user.username }}</a>
+                    <a href="#" class="user-link"><i class="fas fa-user"></i><span class="nav-text">{{ current_user.username }}</span></a>
                     <div class="user-dropdown">
                         <a href="#" onclick="OpenProfileModal(); event.preventDefault();"><i class="fas fa-id-card"></i>Profile</a>
                         <a href="/logout"><i class="fas fa-sign-out-alt"></i>Logout</a>
@@ -528,7 +528,7 @@
                     <div class="droplet" style="position: relative; ${opacityStyle}" ${clickAction}>
                         <div style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.5); border-radius: 4px; padding: 4px; z-index: 95;" onclick="event.stopPropagation();">
                             <i class="fas fa-ellipsis-v" style="cursor: pointer; padding: 4px 8px; color: white;" onclick="ToggleDropdown(event, '${instance.id}')"></i>
-                            <div id="dropdown-${instance.id}" class="instance-dropdown" style="display: none; position: absolute; left: 100%; top: 0; margin-left: 8px; background: #1c1c1c; border: 1px solid var(--border-color); border-radius: 4px; padding: 0; overflow: hidden; z-index: 100; min-width: 120px; box-shadow: 0 4px 6px rgba(0,0,0,0.5); text-align: left; cursor: pointer;">
+                            <div id="dropdown-${instance.id}" class="instance-dropdown">
                                 <div class="dropdown-item" onclick="ShowInstanceInfo('${instance.id}')"><i class="fas fa-info-circle"></i> Info</div>
                                 <div class="dropdown-item" onclick="RenameInstance('${instance.id}', '${name.replace(/'/g, "\\'")}')"><i class="fas fa-edit"></i> Rename</div>
                                 <div class="dropdown-item" onclick="DuplicateInstance('${instance.id}', '${name.replace(/'/g, "\\'")}')"><i class="fas fa-copy"></i> Duplicate</div>
