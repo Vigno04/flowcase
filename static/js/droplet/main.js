@@ -326,39 +326,6 @@ if (!isGuacamole)
 		return 'Upload failed';
 	}
 
-	// Recursively collect all File objects from a DataTransferItemList (handles folders)
-	function _collectFilesFromEntry(entry, pathPrefix) {
-		return new Promise(function(resolve) {
-			if (entry.isFile) {
-				entry.file(function(file) {
-					// Attach the virtual path so the server preserves folder structure
-					file._virtualPath = pathPrefix + file.name;
-					resolve([file]);
-				}, function() { resolve([]); });
-			} else if (entry.isDirectory) {
-				var reader = entry.createReader();
-				var allFiles = [];
-				function readBatch() {
-					reader.readEntries(function(entries) {
-						if (!entries.length) {
-							resolve(allFiles);
-							return;
-						}
-						var promises = entries.map(function(e) {
-							return _collectFilesFromEntry(e, pathPrefix + entry.name + '/');
-						});
-						Promise.all(promises).then(function(results) {
-							results.forEach(function(r) { allFiles = allFiles.concat(r); });
-							readBatch(); // keep reading until empty batch
-						});
-					}, function() { resolve(allFiles); });
-				}
-				readBatch();
-			} else {
-				resolve([]);
-			}
-		});
-	}
 
 	Dropzone.autoDiscover = false;
 	let myDropzone = new Dropzone("#upload-section-main", {
@@ -406,35 +373,8 @@ if (!isGuacamole)
 				dropZoneEl.classList.remove('dz-drag-hover');
 			});
 			dropZoneEl.addEventListener('drop', function(e) {
-				e.preventDefault();
-				e.stopPropagation();
 				dropZoneEl.classList.remove('dz-drag-hover');
-
-				var items = e.dataTransfer && e.dataTransfer.items;
-				if (!items || !items.length) return;
-
-				var promises = [];
-				for (var i = 0; i < items.length; i++) {
-					var item = items[i];
-					if (item.webkitGetAsEntry) {
-						var entry = item.webkitGetAsEntry();
-						if (entry) {
-							promises.push(_collectFilesFromEntry(entry, ''));
-						}
-					} else {
-						var f = item.getAsFile();
-						if (f) {
-							f._virtualPath = f.name;
-							promises.push(Promise.resolve([f]));
-						}
-					}
-				}
-
-				Promise.all(promises).then(function(results) {
-					var allFiles = [];
-					results.forEach(function(r) { allFiles = allFiles.concat(r); });
-					allFiles.forEach(function(file) { dz.addFile(file); });
-				});
+				// Let Dropzone natively handle the drop and directory traversal
 			});
 
 			// ── Wire up preview buttons ───────────────────────────────────────
@@ -515,6 +455,16 @@ if (!isGuacamole)
 
 			// ── Error: friendly message + retry button ────────────────────────
 			dz.on("error", function(file, message, xhr) {
+				var errorText = (xhr && xhr.responseText) ? xhr.responseText.trim() : (message || "");
+				if (errorText === "File already exists") {
+					// The file is already on the server, treat as success
+					file.status = Dropzone.SUCCESS;
+					file.accepted = true;
+					dz.emit("success", file, "File already exists", null);
+					dz.emit("complete", file);
+					return;
+				}
+
 				_uploadActive = Math.max(0, _uploadActive - 1);
 				_uploadErrored++;
 				_updateUploadBadge();
