@@ -15,7 +15,7 @@ function toggleSidebar(action = null) {
 		if (!isGuacamole) {
 			var downloadSection = document.getElementById('download-section');
 			if (downloadSection.classList.contains('active')) {
-				FetchDownloads(currentDownloadPath);
+				FetchDownloads();
 			}
 		}
 	}

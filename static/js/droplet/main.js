@@ -190,65 +190,102 @@ function ToggleAudioButton() {
 
 if (!isGuacamole)
 {
-	//Downloads
-	var currentDownloadPath = '';
-	function FetchDownloads(path = '') {
-		currentDownloadPath = path;
-
+	function BuildDownloadTree(container, path) {
 		var url = `/desktop/${instanceInfo.id}/vnc/Downloads/Downloads/` + path;
 		var xhr = new XMLHttpRequest();
 		xhr.open("GET", url, true);
 		xhr.setRequestHeader("Content-Type", "application/json");
 		xhr.onreadystatechange = function () {
 			if (xhr.readyState === 4) {
-				//parse downloads by getting the a tags
 				var parser = new DOMParser();
 				var html = parser.parseFromString(xhr.responseText, 'text/html');
-				var downloads = [];
 				var aTags = html.getElementsByTagName('a');
+				var ul = document.createElement('ul');
+				ul.style.listStyle = 'none';
+				ul.style.paddingLeft = path === '' ? '0' : '15px';
 
 				for (var i = 0; i < aTags.length; i++) {
-					var aTag = aTags[i];
-					var download = {
-						name: aTag.innerText,
-						url: url + aTag.innerText,
-						isDirectory: aTag.innerText.endsWith('/')
-					};
-					downloads.push(download);
-				}
-				var downloadSection = document.getElementById('download-section');
-				downloadSection.innerHTML = '';
+					var name = aTags[i].innerText;
+					if (name === '../') continue;
 
-				if (path != '' && path != '/') {
-					//get parent directory
-					var parentPath = path.split('/').slice(0, -2).join('/') + '/';
-
-					downloadSection.innerHTML += `
-					<a onclick="FetchDownloads('${parentPath}')"><i class="fa fa-arrow-left"></i> ..</a>
-					`
-				}
-
-				if (downloads.length == 0) {
-					downloadSection.innerHTML += '<p>No files found.</p>';
-					return;
-				}
-
-				for (var i = 0; i < downloads.length; i++) {
-					var download = downloads[i];
+					var li = document.createElement('li');
+					li.style.marginBottom = '5px';
+					var isDirectory = name.endsWith('/');
 					
-					if (download.isDirectory) {
-						downloadSection.innerHTML += `
-						<a onclick="FetchDownloads('${path + download.name}')"><i class="fa fa-folder"></i> ${download.name}</a>
-						`
+					var icon = document.createElement('i');
+					icon.className = isDirectory ? 'fa fa-folder' : 'fa fa-file';
+					icon.style.marginRight = '8px';
+
+					var link = document.createElement('a');
+					link.innerText = name;
+					link.style.cursor = 'pointer';
+
+					var actions = document.createElement('span');
+					actions.style.float = 'right';
+
+					var downloadBtn = document.createElement('a');
+					downloadBtn.innerHTML = '<i class="fa fa-download"></i>';
+					downloadBtn.style.marginLeft = '10px';
+					downloadBtn.title = "Download";
+					
+					if (isDirectory) {
+						downloadBtn.href = `/desktop/${instanceInfo.id}/uploads/download?path=${encodeURIComponent(path + name)}`;
 					} else {
-						downloadSection.innerHTML += `
-						<a download href="${download.url}"><i class="fa fa-file"></i> ${download.name}</a>
-						`
+						downloadBtn.href = url + name;
+						downloadBtn.download = name;
 					}
+
+					li.appendChild(icon);
+					li.appendChild(link);
+					li.appendChild(actions);
+					actions.appendChild(downloadBtn);
+
+					if (isDirectory) {
+						var subContainer = document.createElement('div');
+						subContainer.style.display = 'none';
+						li.appendChild(subContainer);
+						
+						link.onclick = (function(sub, p, ico) {
+							return function() {
+								if (sub.style.display === 'none') {
+									sub.style.display = 'block';
+									ico.className = 'fa fa-folder-open';
+									if (sub.innerHTML === '') {
+										sub.innerHTML = '<i>Loading...</i>';
+										BuildDownloadTree(sub, p);
+									}
+								} else {
+									sub.style.display = 'none';
+									ico.className = 'fa fa-folder';
+								}
+							}
+						})(subContainer, path + name, icon);
+					} else {
+						link.href = url + name;
+						link.download = name;
+					}
+
+					ul.appendChild(li);
+				}
+				container.innerHTML = '';
+				if (path === '') {
+					if (ul.childNodes.length === 0) {
+						container.innerHTML = '<p>No files found.</p>';
+					} else {
+						container.appendChild(ul);
+					}
+				} else {
+					container.appendChild(ul);
 				}
 			}
 		};
 		xhr.send();
+	}
+
+	function FetchDownloads() {
+		var downloadSection = document.getElementById('download-section');
+		downloadSection.innerHTML = '<i>Loading...</i>';
+		BuildDownloadTree(downloadSection, '');
 	}
 
 	//Uploads
@@ -276,8 +313,29 @@ if (!isGuacamole)
 		init: function() {
 			this.on("success", function(file, response) {
 				setTimeout(() => {
-					file.previewElement.remove();
+					if (file.previewElement) {
+						file.previewElement.remove();
+					}
 				}, 3500);
+			});
+			this.on("error", function(file, message, xhr) {
+				if (file.previewElement) {
+					var errorElement = file.previewElement.querySelector('[data-dz-errormessage]');
+					if (errorElement) {
+						if (xhr && xhr.responseText) {
+							errorElement.innerText = xhr.responseText;
+						} else if (message) {
+							errorElement.innerText = typeof message === 'string' ? message : "Upload failed";
+						}
+					}
+				}
+			});
+			this.on("sending", function(file, xhr, formData) {
+				if (file.fullPath) {
+					formData.append("filepath", file.fullPath);
+				} else if (file.webkitRelativePath) {
+					formData.append("filepath", file.webkitRelativePath);
+				}
 			});
 		}
 	});
