@@ -288,57 +288,281 @@ if (!isGuacamole)
 		BuildDownloadTree(downloadSection, '');
 	}
 
-	//Uploads
+	// ─── Upload Section ────────────────────────────────────────────────────────
+
+	// Tracks active upload counts for badge on Upload button
+	var _uploadActive = 0;
+	var _uploadErrored = 0;
+
+	function _updateUploadBadge() {
+		var badge = document.getElementById('upload-badge');
+		if (!badge) return;
+		var total = _uploadActive + _uploadErrored;
+		if (total > 0) {
+			badge.textContent = total;
+			badge.style.display = 'inline-block';
+			badge.style.background = _uploadErrored > 0 ? '#cc3333' : '#4a9eff';
+		} else {
+			badge.style.display = 'none';
+		}
+	}
+
+	// Human-readable error mapping
+	function _friendlyError(message, xhr) {
+		if (xhr) {
+			if (xhr.status === 400) {
+				var text = (xhr.responseText || '').trim();
+				return text || 'Bad request (file may already exist or no space)';
+			}
+			if (xhr.status === 403) return 'Access denied';
+			if (xhr.status === 413) return 'File too large for a single chunk';
+			if (xhr.status === 500) {
+				var text = (xhr.responseText || '').trim();
+				return text || 'Server error — check that the droplet upload service is running';
+			}
+			if (xhr.status === 0) return 'Connection lost — is the droplet still running?';
+		}
+		if (typeof message === 'string' && message) return message;
+		return 'Upload failed';
+	}
+
+	// Recursively collect all File objects from a DataTransferItemList (handles folders)
+	function _collectFilesFromEntry(entry, pathPrefix) {
+		return new Promise(function(resolve) {
+			if (entry.isFile) {
+				entry.file(function(file) {
+					// Attach the virtual path so the server preserves folder structure
+					file._virtualPath = pathPrefix + file.name;
+					resolve([file]);
+				}, function() { resolve([]); });
+			} else if (entry.isDirectory) {
+				var reader = entry.createReader();
+				var allFiles = [];
+				function readBatch() {
+					reader.readEntries(function(entries) {
+						if (!entries.length) {
+							resolve(allFiles);
+							return;
+						}
+						var promises = entries.map(function(e) {
+							return _collectFilesFromEntry(e, pathPrefix + entry.name + '/');
+						});
+						Promise.all(promises).then(function(results) {
+							results.forEach(function(r) { allFiles = allFiles.concat(r); });
+							readBatch(); // keep reading until empty batch
+						});
+					}, function() { resolve(allFiles); });
+				}
+				readBatch();
+			} else {
+				resolve([]);
+			}
+		});
+	}
+
 	Dropzone.autoDiscover = false;
 	let myDropzone = new Dropzone("#upload-section-main", {
 		url: `/desktop/${instanceInfo.id}/uploads/upload`,
 		forceChunking: true,
 		chunking: true,
-		chunkSize: 10000000, //10MB
-		parallelUploads: 20,
-		maxFilesize: 16000000, //16GB
+		chunkSize: 10 * 1024 * 1024,    // 10 MB chunks
+		parallelUploads: 3,
+		maxFilesize: 16 * 1024,          // 16 GB in MB (Dropzone unit)
 		autoProcessQueue: true,
 		createImageThumbnails: false,
-		clickable: true,
+		clickable: '#upload-click-target',
+		previewsContainer: '#upload-preview-list',
 		previewTemplate: `
-		<div class="dz-preview dz-file-preview">
-			<div class="dz-details">
-				<div class="dz-filename"><span data-dz-name></span></div>
-				<div class="dz-size" data-dz-size></div>
-			</div>
-			<div class="dz-progress"><span class="dz-upload" data-dz-uploadprogress></span></div>
-			<div class="dz-error-message"><span data-dz-errormessage></span></div>
-		</div>
+<div class="dz-preview dz-file-preview">
+  <div class="dz-item-row">
+    <i class="fa fa-file dz-file-icon"></i>
+    <div class="dz-item-info">
+      <div class="dz-filename"><span data-dz-name></span></div>
+      <div class="dz-size" data-dz-size></div>
+    </div>
+    <div class="dz-item-actions">
+      <span class="dz-pct-label">0%</span>
+      <button class="dz-retry-btn" title="Retry" style="display:none"><i class="fa fa-redo"></i></button>
+      <button class="dz-remove-btn" title="Remove"><i class="fa fa-times"></i></button>
+    </div>
+  </div>
+  <div class="dz-progress-bar-wrap">
+    <div class="dz-progress-bar-inner" data-dz-uploadprogress></div>
+  </div>
+  <div class="dz-error-row" style="display:none"><span data-dz-errormessage></span></div>
+</div>
 		`,
 		init: function() {
-			this.on("success", function(file, response) {
-				setTimeout(() => {
-					if (file.previewElement) {
-						file.previewElement.remove();
-					}
-				}, 3500);
+			var dz = this;
+
+			// ── Folder Drag-and-Drop via DataTransferItem API ──────────────────
+			var dropZoneEl = document.getElementById('upload-section-main');
+
+			dropZoneEl.addEventListener('dragover', function(e) {
+				e.preventDefault();
+				dropZoneEl.classList.add('dz-drag-hover');
 			});
-			this.on("error", function(file, message, xhr) {
-				if (file.previewElement) {
-					var errorElement = file.previewElement.querySelector('[data-dz-errormessage]');
-					if (errorElement) {
-						if (xhr && xhr.responseText) {
-							errorElement.innerText = xhr.responseText;
-						} else if (message) {
-							errorElement.innerText = typeof message === 'string' ? message : "Upload failed";
+			dropZoneEl.addEventListener('dragleave', function(e) {
+				dropZoneEl.classList.remove('dz-drag-hover');
+			});
+			dropZoneEl.addEventListener('drop', function(e) {
+				e.preventDefault();
+				e.stopPropagation();
+				dropZoneEl.classList.remove('dz-drag-hover');
+
+				var items = e.dataTransfer && e.dataTransfer.items;
+				if (!items || !items.length) return;
+
+				var promises = [];
+				for (var i = 0; i < items.length; i++) {
+					var item = items[i];
+					if (item.webkitGetAsEntry) {
+						var entry = item.webkitGetAsEntry();
+						if (entry) {
+							promises.push(_collectFilesFromEntry(entry, ''));
+						}
+					} else {
+						var f = item.getAsFile();
+						if (f) {
+							f._virtualPath = f.name;
+							promises.push(Promise.resolve([f]));
 						}
 					}
 				}
+
+				Promise.all(promises).then(function(results) {
+					var allFiles = [];
+					results.forEach(function(r) { allFiles = allFiles.concat(r); });
+					allFiles.forEach(function(file) { dz.addFile(file); });
+				});
 			});
-			this.on("sending", function(file, xhr, formData) {
-				if (file.fullPath) {
-					formData.append("filepath", file.fullPath);
-				} else if (file.webkitRelativePath) {
-					formData.append("filepath", file.webkitRelativePath);
+
+			// ── Wire up preview buttons ───────────────────────────────────────
+			dz.on("addedfile", function(file) {
+				_uploadActive++;
+				_updateUploadBadge();
+				_updateUploadCountLabel();
+				if (!file.previewElement) return;
+
+				var removeBtn = file.previewElement.querySelector('.dz-remove-btn');
+				if (removeBtn) {
+					removeBtn.addEventListener('click', function(e) {
+						e.preventDefault(); e.stopPropagation();
+						dz.removeFile(file);
+					});
 				}
+
+				var retryBtn = file.previewElement.querySelector('.dz-retry-btn');
+				if (retryBtn) {
+					retryBtn.addEventListener('click', function(e) {
+						e.preventDefault(); e.stopPropagation();
+						file.status = Dropzone.QUEUED;
+						file.accepted = true;
+						if (file.previewElement) {
+							file.previewElement.classList.remove('dz-error', 'dz-success');
+							var errRow = file.previewElement.querySelector('.dz-error-row');
+							if (errRow) errRow.style.display = 'none';
+							var bar = file.previewElement.querySelector('.dz-progress-bar-inner');
+							if (bar) bar.style.width = '0%';
+							var pct = file.previewElement.querySelector('.dz-pct-label');
+							if (pct) pct.textContent = '0%';
+							retryBtn.style.display = 'none';
+						}
+						_uploadErrored = Math.max(0, _uploadErrored - 1);
+						_uploadActive++;
+						_updateUploadBadge();
+						dz.processFile(file);
+					});
+				}
+			});
+
+			// ── Sending: attach virtual filepath for folder uploads ────────────
+			dz.on("sending", function(file, xhr, formData) {
+				var vp = file._virtualPath || file.fullPath || file.webkitRelativePath;
+				if (vp) formData.append("filepath", vp);
+			});
+
+			// ── Progress: update bar & pct label ─────────────────────────────
+			dz.on("uploadprogress", function(file, progress) {
+				if (!file.previewElement) return;
+				var bar = file.previewElement.querySelector('.dz-progress-bar-inner');
+				var pct = file.previewElement.querySelector('.dz-pct-label');
+				var p = Math.round(progress);
+				if (bar) bar.style.width = p + '%';
+				if (pct) pct.textContent = p + '%';
+			});
+
+			// ── Success: fade out after 2.5s ──────────────────────────────────
+			dz.on("success", function(file) {
+				_uploadActive = Math.max(0, _uploadActive - 1);
+				_updateUploadBadge();
+				if (file.previewElement) {
+					var pct = file.previewElement.querySelector('.dz-pct-label');
+					if (pct) pct.textContent = '✓';
+					var bar = file.previewElement.querySelector('.dz-progress-bar-inner');
+					if (bar) bar.style.width = '100%';
+					setTimeout(function() {
+						if (file.previewElement) {
+							file.previewElement.classList.add('dz-fading');
+							setTimeout(function() {
+								if (file.previewElement) file.previewElement.remove();
+								_updateUploadCountLabel();
+							}, 400);
+						}
+					}, 2500);
+				}
+			});
+
+			// ── Error: friendly message + retry button ────────────────────────
+			dz.on("error", function(file, message, xhr) {
+				_uploadActive = Math.max(0, _uploadActive - 1);
+				_uploadErrored++;
+				_updateUploadBadge();
+				if (!file.previewElement) return;
+				var errSpan  = file.previewElement.querySelector('[data-dz-errormessage]');
+				var errRow   = file.previewElement.querySelector('.dz-error-row');
+				var retryBtn = file.previewElement.querySelector('.dz-retry-btn');
+				var pct      = file.previewElement.querySelector('.dz-pct-label');
+				if (errSpan) errSpan.textContent = _friendlyError(message, xhr);
+				if (errRow)  errRow.style.display = 'flex';
+				if (retryBtn) retryBtn.style.display = 'inline-flex';
+				if (pct) pct.textContent = '✕';
+			});
+
+			// ── Removed: clean up counters ────────────────────────────────────
+			dz.on("removedfile", function(file) {
+				if (file.status === Dropzone.ERROR) {
+					_uploadErrored = Math.max(0, _uploadErrored - 1);
+				} else if (file.status !== Dropzone.SUCCESS) {
+					_uploadActive = Math.max(0, _uploadActive - 1);
+				}
+				_updateUploadBadge();
+				_updateUploadCountLabel();
 			});
 		}
 	});
+
+	// Clear all completed or errored items
+	function ClearUploads() {
+		var previews = document.querySelectorAll('#upload-preview-list .dz-preview');
+		previews.forEach(function(el) {
+			if (el.classList.contains('dz-success') || el.classList.contains('dz-error')) {
+				var file = myDropzone.files.find(function(f) { return f.previewElement === el; });
+				if (file) myDropzone.removeFile(file);
+				else el.remove();
+			}
+		});
+		_uploadErrored = 0;
+		_updateUploadBadge();
+		_updateUploadCountLabel();
+	}
+
+	function _updateUploadCountLabel() {
+		var label = document.getElementById('upload-count-label');
+		var count = document.querySelectorAll('#upload-preview-list .dz-preview').length;
+		if (!label) return;
+		label.textContent = count > 0 ? count + ' item' + (count !== 1 ? 's' : '') : '';
+	}
 }
 
 function SideBarHandleInit() {

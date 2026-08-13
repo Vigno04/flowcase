@@ -348,6 +348,15 @@ def request_new_instance():
 			type="volume"
 		)
 		mounts.append(shared_mount)
+
+		# Also mount to /Uploads so the upload server works regardless of which
+		# path it defaults to (--upload_dir vs --upload-dir arg mismatch workaround)
+		uploads_mount = docker.types.Mount(
+			target="/home/flowcase-user/Uploads",
+			source=shared_volume_name,
+			type="volume"
+		)
+		mounts.append(uploads_mount)
 		
 		# Hybrid Saving Volume Mounts
 		if getattr(droplet, 'save_mode', 'commit') == 'volume':
@@ -1204,6 +1213,15 @@ def resume_instance(instance_id: str):
 		type="volume"
 	)
 	mounts.append(shared_mount)
+
+	# Also mount to /Uploads so the upload server works regardless of which
+	# path it defaults to (--upload_dir vs --upload-dir arg mismatch workaround)
+	uploads_mount = docker.types.Mount(
+		target="/home/flowcase-user/Uploads",
+		source=shared_volume_name,
+		type="volume"
+	)
+	mounts.append(uploads_mount)
 	
 	# Hybrid Saving Volume Mounts
 	if getattr(droplet, 'save_mode', 'commit') == 'volume':

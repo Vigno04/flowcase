@@ -71,14 +71,31 @@
 					<div class="sidebar-section" id="download-section">
 					</div>
 
-					<div class="sidebar-button" onclick="ToggleUploadSection()">
-						<i class="fa fa-upload"></i>
-						<p>Upload</p>
+				<div class="sidebar-button" onclick="ToggleUploadSection()">
+					<i class="fa fa-upload"></i>
+					<p>Upload</p>
+					<div class="sidebar-input">
+						<span class="upload-badge" id="upload-badge" style="display:none"></span>
 					</div>
+				</div>
 
-					<div class="sidebar-section" id="upload-section">
-						<form action="/desktop/{{instance_id}}/uploads/upload" class="dropzone" id="upload-section-main"></form>
+
+				<div class="sidebar-section" id="upload-section">
+					<div id="upload-section-main" class="upload-drop-zone">
+						<div id="upload-click-target" class="upload-click-area">
+							<i class="fa fa-cloud-upload-alt upload-drop-icon"></i>
+							<p class="upload-drop-label">Drop files or folders here</p>
+							<p class="upload-drop-sub">or click to browse</p>
+						</div>
+						<div id="upload-preview-list" class="upload-preview-list"></div>
+						<div class="upload-footer" id="upload-footer">
+							<span id="upload-count-label" class="upload-count-label"></span>
+							<button class="upload-clear-btn" onclick="ClearUploads()" title="Clear completed &amp; errored">
+								<i class="fa fa-broom"></i> Clear done
+							</button>
+						</div>
 					</div>
+				</div>
 
 					<div class="sidebar-button" onclick="DisplayButton()">
 						<i class="fa fa-desktop"></i>
