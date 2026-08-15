@@ -750,87 +750,206 @@ function AdminChangeTab(tab, element = null)
 			function loadStats() {
 				fetch('/api/admin/stats')
 					.then(r => r.json())
-					.then(json => {
+					.then(statsJson => {
 						let statsContainer = document.getElementById('stats-container');
 						if (!statsContainer) return;
-						if (!json.success) {
+						if (!statsJson.success) {
 							statsContainer.innerHTML = '<div style="color:red;">Error loading stats.</div>';
 							return;
 						}
 						statsContainer.innerHTML = `
 							<div style="display:flex; flex-wrap:wrap; gap:20px; margin-bottom: 20px;">
-								<div class="admin-modal-card" style="flex:1; min-width:250px;">
-									<p>CPU Usage</p>
-									<h2 style="margin:10px 0;">${json.cpu}%</h2>
+								<div class="admin-modal-card" style="flex:1; min-width:220px; padding:18px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);">
+									<p style="font-size:13px; color:var(--text-color-light); margin:0;">CPU Usage</p>
+									<h2 style="margin:8px 0; font-size:26px;">${statsJson.cpu}%</h2>
 									<p style="font-size:12px; color:var(--text-color-gray); margin-bottom: 5px;">
-										${json.cpu}% / 100% Total
+										Host: ${statsJson.cpu}% / 100%
 									</p>
-									${json.flowcase && json.flowcase.cpu_percent !== undefined ? `
-									<p style="font-size:12px; color:#1084ff;">
-										Flowcase: ${json.flowcase.cpu_percent}%
+									${statsJson.flowcase && statsJson.flowcase.cpu_percent !== undefined ? `
+									<p style="font-size:12px; color:#60a5fa; margin:2px 0;">
+										Flowcase Droplets: <b>${statsJson.flowcase.cpu_percent}%</b>
 									</p>
 									` : ''}
 									<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
-										${json.flowcase && json.flowcase.cpu_percent !== undefined ? `
-										<div style="width:${json.flowcase.cpu_percent}%; background:#1084ff; height:100%;"></div>
-										<div style="width:${Math.max(0, json.cpu - json.flowcase.cpu_percent)}%; background:#4f8ef7; height:100%;"></div>
+										${statsJson.flowcase && statsJson.flowcase.cpu_percent !== undefined ? `
+										<div style="width:${Math.min(100, statsJson.flowcase.cpu_percent)}%; background:#3b82f6; height:100%;"></div>
+										<div style="width:${Math.max(0, Math.min(100 - statsJson.flowcase.cpu_percent, statsJson.cpu - statsJson.flowcase.cpu_percent))}%; background:#93c5fd; height:100%;"></div>
 										` : `
-										<div style="width:${json.cpu}%; background:#4f8ef7; height:100%;"></div>
+										<div style="width:${Math.min(100, statsJson.cpu)}%; background:#3b82f6; height:100%;"></div>
 										`}
 									</div>
 								</div>
-								<div class="admin-modal-card" style="flex:1; min-width:250px;">
-									<p>Memory Usage</p>
-									<h2 style="margin:10px 0;">${json.memory.percent}%</h2>
+								<div class="admin-modal-card" style="flex:1; min-width:220px; padding:18px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);">
+									<p style="font-size:13px; color:var(--text-color-light); margin:0;">Memory Usage</p>
+									<h2 style="margin:8px 0; font-size:26px;">${statsJson.memory.percent}%</h2>
 									<p style="font-size:12px; color:var(--text-color-gray); margin-bottom: 5px;">
-										${(json.memory.used/1024/1024/1024).toFixed(1)} GB / ${(json.memory.total/1024/1024/1024).toFixed(1)} GB Total
+										${(statsJson.memory.used/1024/1024/1024).toFixed(1)} GB / ${(statsJson.memory.total/1024/1024/1024).toFixed(1)} GB Total
 									</p>
-									${json.flowcase && json.flowcase.memory_used !== undefined ? `
-									<p style="font-size:12px; color:#1084ff;">
-										Flowcase: ${(json.flowcase.memory_used/1024/1024/1024).toFixed(1)} GB
+									${statsJson.flowcase && statsJson.flowcase.memory_used !== undefined ? `
+									<p style="font-size:12px; color:#4ade80; margin:2px 0;">
+										Flowcase Droplets: <b>${(statsJson.flowcase.memory_used/1024/1024/1024).toFixed(2)} GB</b>
 									</p>
 									` : ''}
 									<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
-										${json.flowcase && json.flowcase.memory_used !== undefined ? `
-										<div style="width:${(json.flowcase.memory_used / json.memory.total) * 100}%; background:#1084ff; height:100%;"></div>
-										<div style="width:${Math.max(0, json.memory.percent - ((json.flowcase.memory_used / json.memory.total) * 100))}%; background:#28a745; height:100%;"></div>
+										${statsJson.flowcase && statsJson.flowcase.memory_used !== undefined ? `
+										<div style="width:${Math.min(100, (statsJson.flowcase.memory_used / statsJson.memory.total) * 100)}%; background:#22c55e; height:100%;"></div>
+										<div style="width:${Math.max(0, statsJson.memory.percent - ((statsJson.flowcase.memory_used / statsJson.memory.total) * 100))}%; background:#86efac; height:100%;"></div>
 										` : `
-										<div style="width:${json.memory.percent}%; background:#28a745; height:100%;"></div>
+										<div style="width:${Math.min(100, statsJson.memory.percent)}%; background:#22c55e; height:100%;"></div>
 										`}
 									</div>
 								</div>
-								<div class="admin-modal-card" style="flex:1; min-width:250px;">
-									<p>Disk Usage</p>
-									<h2 style="margin:10px 0;">${json.disk.percent}%</h2>
+								<div class="admin-modal-card" style="flex:1; min-width:220px; padding:18px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);">
+									<p style="font-size:13px; color:var(--text-color-light); margin:0;">Disk Usage</p>
+									<h2 style="margin:8px 0; font-size:26px;">${statsJson.disk.percent}%</h2>
 									<p style="font-size:12px; color:var(--text-color-gray); margin-bottom: 5px;">
-										${(json.disk.used/1024/1024/1024).toFixed(1)} GB / ${(json.disk.total/1024/1024/1024).toFixed(1)} GB Total
+										${(statsJson.disk.used/1024/1024/1024).toFixed(1)} GB / ${(statsJson.disk.total/1024/1024/1024).toFixed(1)} GB Total
 									</p>
-									${json.flowcase && json.flowcase.disk_used !== undefined ? `
-									<p style="font-size:12px; color:#1084ff;">
-										Flowcase: ${(json.flowcase.disk_used/1024/1024/1024).toFixed(1)} GB
+									${statsJson.flowcase && statsJson.flowcase.disk_used !== undefined ? `
+									<p style="font-size:12px; color:#fbbf24; margin:2px 0;">
+										Flowcase Data: <b>${(statsJson.flowcase.disk_used/1024/1024/1024).toFixed(2)} GB</b>
 									</p>
 									` : ''}
 									<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:8px; margin-top:10px; display:flex; overflow:hidden;">
-										${json.flowcase && json.flowcase.disk_used !== undefined ? `
-										<div style="width:${(json.flowcase.disk_used / json.disk.total) * 100}%; background:#1084ff; height:100%;"></div>
-										<div style="width:${Math.max(0, json.disk.percent - ((json.flowcase.disk_used / json.disk.total) * 100))}%; background:#ffc107; height:100%;"></div>
+										${statsJson.flowcase && statsJson.flowcase.disk_used !== undefined ? `
+										<div style="width:${Math.min(100, (statsJson.flowcase.disk_used / statsJson.disk.total) * 100)}%; background:#f59e0b; height:100%;"></div>
+										<div style="width:${Math.max(0, statsJson.disk.percent - ((statsJson.flowcase.disk_used / statsJson.disk.total) * 100))}%; background:#fcd34d; height:100%;"></div>
 										` : `
-										<div style="width:${json.disk.percent}%; background:#ffc107; height:100%;"></div>
+										<div style="width:${Math.min(100, statsJson.disk.percent)}%; background:#f59e0b; height:100%;"></div>
 										`}
 									</div>
 								</div>
-								<div class="admin-modal-card" style="flex:1; min-width:250px;">
-									<p>Docker Containers</p>
-									<h2 style="margin:10px 0;">${json.docker.running_containers} / ${json.docker.total_containers}</h2>
-									<p style="font-size:12px; color:var(--text-color-gray);">Running / Total</p>
+								<div class="admin-modal-card" style="flex:1; min-width:220px; padding:18px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);">
+									<p style="font-size:13px; color:var(--text-color-light); margin:0;">Docker Containers</p>
+									<h2 style="margin:8px 0; font-size:26px;">${statsJson.docker.running_containers} <span style="font-size:18px; color:var(--text-color-gray); font-weight:normal;">/ ${statsJson.docker.total_containers}</span></h2>
+									<p style="font-size:12px; color:var(--text-color-gray); margin-top:5px;">
+										<span style="color:#4ade80;">●</span> ${statsJson.docker.running_containers} Running active
+									</p>
 								</div>
 							</div>
-							<div style="display: flex; justify-content: flex-end; align-items: center; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+							<div style="display: flex; justify-content: flex-end; align-items: center; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); margin-bottom: 15px;">
 								<span style="font-size: 12px; color: var(--text-color-gray);">
-									Last updated: ${json.last_updated ? new Date(json.last_updated * 1000).toLocaleTimeString() : new Date().toLocaleTimeString()}
+									<i class="fas fa-clock" style="font-size:11px;"></i> Last updated: ${statsJson.last_updated ? new Date(statsJson.last_updated * 1000).toLocaleTimeString() : new Date().toLocaleTimeString()}
 								</span>
 							</div>
 						`;
+
+						// Update instances table with per-instance metrics
+						FetchAdminInstances(function(instJson) {
+							let instContainer = document.getElementById('instances-container');
+							if (!instContainer) return;
+							
+							// Avoid overwriting if user is interacting with checkboxes
+							let anyChecked = false;
+							document.querySelectorAll('.bulk-checkbox-instances').forEach(cb => {
+								if(cb.checked) anyChecked = true;
+							});
+							if (anyChecked) return;
+
+							function formatInstBytes(bytes) {
+								if (!bytes || bytes === 0) return '0 MB';
+								var mb = bytes / (1024 * 1024);
+								if (mb >= 1024) return (mb / 1024).toFixed(2) + ' GB';
+								return mb.toFixed(1) + ' MB';
+							}
+
+							let instancesHtml = `
+								${userInfo.permissions.perm_edit_instances ? `
+									<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+										<h4 style="margin:0; font-size:15px; font-weight:600; color:#fafafa;"><i class="fas fa-desktop" style="margin-right:6px; color:#38bdf8;"></i> Active Instances & Consumption</h4>
+										<button class="button-1" style="background:#e05454; padding:6px 12px; font-size:12px;" onclick="BulkDelete('instances')">Delete Selected</button>
+									</div>
+								` : ''}
+							<table class="admin-modal-table">
+								<thead>
+									<tr>
+										${userInfo.permissions.perm_edit_instances ? `<th style="width: 40px; text-align: center;"><input type="checkbox" onclick="document.querySelectorAll('.bulk-checkbox-instances').forEach(cb => cb.checked = this.checked)"></th>` : ''}
+										<th>Instance</th>
+										<th>User</th>
+										<th>Status</th>
+										<th>CPU Usage</th>
+										<th>Memory Usage</th>
+										<th>Network I/O</th>
+										<th>IP Address</th>
+										${userInfo.permissions.perm_edit_instances ? `<th>Actions</th>` : ''}
+									</tr>
+								</thead>
+								<tbody>
+								${instJson["instances"].length === 0 ? `
+									<tr>
+										<td colspan="${userInfo.permissions.perm_edit_instances ? 9 : 8}" style="text-align: center; padding: 24px; color: var(--text-color-gray); font-size: 13px;">
+											<i class="fas fa-cubes" style="font-size: 20px; opacity: 0.5; margin-bottom: 6px; display: block;"></i>
+											No active or saved droplet instances found.
+										</td>
+									</tr>
+								` : instJson["instances"].map(instance => {
+									let isRunning = instance.status === "running";
+									let metrics = statsJson.instances && statsJson.instances[instance.id];
+									
+									let statusBadge = isRunning 
+										? `<span style="display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:12px; background:rgba(34,197,94,0.15); color:#4ade80; font-size:11px; font-weight:600;"><span style="width:6px; height:6px; border-radius:50%; background:#4ade80; box-shadow:0 0 6px #4ade80;"></span> Running</span>`
+										: `<span style="display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:12px; background:rgba(255,255,255,0.06); color:#a1a1aa; font-size:11px; font-weight:600;">${instance.status || 'Stopped'}</span>`;
+
+									let cpuCol = `<span style="color:var(--text-color-gray); font-size:12px;">-</span>`;
+									let memCol = `<span style="color:var(--text-color-gray); font-size:12px;">-</span>`;
+									let netCol = `<span style="color:var(--text-color-gray); font-size:12px;">-</span>`;
+
+									if (metrics) {
+										let cpuVal = metrics.cpu_percent || 0;
+										let memUsedStr = formatInstBytes(metrics.memory_used);
+										let memPct = metrics.memory_percent || 0;
+										let rxStr = formatInstBytes(metrics.net_rx);
+										let txStr = formatInstBytes(metrics.net_tx);
+
+										cpuCol = `
+											<div style="min-width: 85px;">
+												<div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:3px;">
+													<span style="font-weight:600; color:#60a5fa;">${cpuVal}%</span>
+												</div>
+												<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:3px; height:4px; overflow:hidden;">
+													<div style="width:${Math.min(100, cpuVal)}%; background:#3b82f6; height:100%;"></div>
+												</div>
+											</div>`;
+
+										memCol = `
+											<div style="min-width: 120px;">
+												<div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:3px;">
+													<span>${memUsedStr}</span>
+													<span style="color:var(--text-color-gray); font-size:10px;">${memPct}%</span>
+												</div>
+												<div style="width:100%; background:rgba(255,255,255,0.1); border-radius:3px; height:4px; overflow:hidden;">
+													<div style="width:${Math.min(100, memPct)}%; background:#22c55e; height:100%;"></div>
+												</div>
+											</div>`;
+
+										netCol = `<span style="font-size:11px; color:#d4d4d8; white-space:nowrap;">↓ ${rxStr} &nbsp; ↑ ${txStr}</span>`;
+									} else if (isRunning) {
+										cpuCol = `<span style="color:var(--text-color-gray); font-size:11px;"><i class="fas fa-spinner fa-spin"></i></span>`;
+										memCol = `<span style="color:var(--text-color-gray); font-size:11px;"><i class="fas fa-spinner fa-spin"></i></span>`;
+									}
+
+									return `
+										<tr>
+											${userInfo.permissions.perm_edit_instances ? `<td style="text-align: center;"><input type="checkbox" class="bulk-checkbox-instances" value="${instance.id}"></td>` : ''}
+											<td><div><img src="${instance.droplet.image_path ? instance.droplet.image_path : '/static/img/droplet_default.jpg'}"><p>${instance.droplet.display_name}</p></div></td>
+											<td>${instance.user.username}</td>
+											<td>${statusBadge}</td>
+											<td>${cpuCol}</td>
+											<td>${memCol}</td>
+											<td>${netCol}</td>
+											<td><code style="font-size:12px; background:rgba(0,0,0,0.25); padding:2px 6px; border-radius:4px;">${instance.ip}</code></td>
+											${userInfo.permissions.perm_edit_instances ? `<td class="admin-modal-table-actions">
+												${isRunning ? `<i class="fas fa-save" style="margin-right:8px; cursor:pointer;" title="Save and Close" onclick="AdminSaveInstance('${instance.id}')"></i>` : ''}
+												<i class="fas fa-trash" style="cursor:pointer;" title="Destroy" onclick="AdminDeleteInstance('${instance.id}')"></i>
+											</td>` : ''}
+										</tr>
+									`;
+								}).join('')}
+								</tbody>
+							</table>
+							`;
+							instContainer.innerHTML = instancesHtml;
+						});
 					})
 					.catch(err => {
 						let statsContainer = document.getElementById('stats-container');
@@ -839,52 +958,6 @@ function AdminChangeTab(tab, element = null)
 						}
 						console.error('Stats load error:', err);
 					});
-
-				// Fetch instances concurrently with stats
-				FetchAdminInstances(function(json) {
-					let instContainer = document.getElementById('instances-container');
-					if (!instContainer) return;
-					
-					// Avoid overwriting if user is interacting with checkboxes
-					let anyChecked = false;
-					document.querySelectorAll('.bulk-checkbox-instances').forEach(cb => {
-						if(cb.checked) anyChecked = true;
-					});
-					
-					if (anyChecked) return;
-					
-					let instancesHtml = `
-						${userInfo.permissions.perm_edit_instances ? `
-							<div style="display: flex; gap: 10px; margin-bottom: 10px;">
-								<button class="button-1" style="background:#e05454;" onclick="BulkDelete('instances')">Delete Selected</button>
-							</div>
-						` : ''}
-					<table class="admin-modal-table">
-						<tr>
-							${userInfo.permissions.perm_edit_instances ? `<th style="width: 40px; text-align: center;"><input type="checkbox" onclick="document.querySelectorAll('.bulk-checkbox-instances').forEach(cb => cb.checked = this.checked)"></th>` : ''}
-							<th>Name</th>
-							<th>Username</th>
-							<th>Creation Time</th>
-							<th>Internal IP</th>
-							${userInfo.permissions.perm_edit_instances ? `<th>Actions</th>` : ''}
-						</tr>
-						${json["instances"].map(instance => `
-							<tr>
-								${userInfo.permissions.perm_edit_instances ? `<td style="text-align: center;"><input type="checkbox" class="bulk-checkbox-instances" value="${instance.id}"></td>` : ''}
-								<td><div><img src="${instance.droplet.image_path ? instance.droplet.image_path : '/static/img/droplet_default.jpg'}"><p>${instance.droplet.display_name}</p></div></td>
-								<td>${instance.user.username}</td>
-								<td>${instance.created_at}</td>
-								<td>${instance.ip}</td>
-								${userInfo.permissions.perm_edit_instances ? `<td class="admin-modal-table-actions">
-									${instance.status === "running" ? `<i class="fas fa-save" style="margin-right:8px;" title="Save and Close" onclick="AdminSaveInstance('${instance.id}')"></i>` : ''}
-									<i class="fas fa-trash" title="Destroy" onclick="AdminDeleteInstance('${instance.id}')"></i>
-								</td>` : ''}
-							</tr>
-						`).join('')}
-					</table>
-					`;
-					instContainer.innerHTML = instancesHtml;
-				});
 			}
 			
 			// Initial load
@@ -894,64 +967,240 @@ function AdminChangeTab(tab, element = null)
 			window.statsRefreshInterval = setInterval(loadStats, 5000);
 			break;
 		case 'scheduler':
-			header.innerText = "Scheduled Tasks";
-			subtext.innerText = "Configure automatic Docker pruning and idle instance shutdowns.";
-			content.innerHTML = '<div style="text-align:center;">Loading settings...</div>';
+			header.innerText = "Tasks & Automation";
+			subtext.innerText = "Configure automated background routines, trigger maintenance tasks, and control server resource cleanup.";
+			content.innerHTML = '<div style="text-align:center; padding: 40px; color: var(--text-color-light);"><i class="fas fa-spinner fa-spin fa-2x"></i><p style="margin-top: 12px; font-size: 14px;">Loading tasks configuration...</p></div>';
 			
 			fetch('/api/admin/settings')
 				.then(r => r.json())
 				.then(json => {
-					if (!json.success) return;
+					if (!json.success) {
+						content.innerHTML = '<div style="text-align:center; color:#ef4444; padding:20px;">Failed to load task settings.</div>';
+						return;
+					}
 					var s = json.settings;
+					
+					function formatLastRun(isoStr) {
+						if (!isoStr) return '<span style="color: rgba(255,255,255,0.35);">Never</span>';
+						try {
+							var d = new Date(isoStr);
+							return '<span style="color: #60a5fa;">' + d.toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) + '</span>';
+						} catch(e) {
+							return isoStr;
+						}
+					}
+
 					content.innerHTML = `
-						<div style="max-width: 538px; width: 100%;">
-							<div class="admin-modal-card" style="padding: 16px;">
-								<h3 style="margin:0 0 10px;">Docker Prune Schedule</h3>
-								<p class="admin-modal-help-text">Automatically remove dangling Docker images to free up space.</p>
-								<select id="settings-prune-frequency" style="width:100%; padding: 8px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); color: white; border-radius: 8px;">
-									<option value="never" ${s.prune_frequency === 'never' ? 'selected' : ''}>Never</option>
-									<option value="daily" ${s.prune_frequency === 'daily' ? 'selected' : ''}>Daily</option>
-									<option value="twice_a_day" ${s.prune_frequency === 'twice_a_day' ? 'selected' : ''}>Twice a day</option>
-									<option value="weekly" ${s.prune_frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
-								</select>
-							</div>
-							<div class="admin-modal-card" style="padding: 16px; margin-top:20px;">
-								<h3 style="margin:0 0 10px;">Auto-Shutdown Idle Instances</h3>
-								<p class="admin-modal-help-text">Stop instances that have no network traffic or low CPU usage for a certain time.</p>
+						<div style="max-width: 680px; width: 100%; display: flex; flex-direction: column; gap: 24px; padding-bottom: 30px;">
+							
+							<!-- Section 1: Storage & Maintenance -->
+							<div>
+								<div style="display:flex; align-items:center; gap: 8px; margin-bottom: 12px;">
+									<i class="fas fa-hard-drive" style="color: #a78bfa; font-size: 15px;"></i>
+									<h4 style="margin: 0; font-size: 15px; font-weight: 600; color: #f4f4f5; letter-spacing: -0.01em;">Storage & Maintenance</h4>
+								</div>
 								
-								<label style="display:flex; align-items:center; cursor:pointer; margin-bottom:15px;">
-									<input type="checkbox" id="settings-auto-shutdown" ${s.auto_shutdown_enabled ? 'checked' : ''} style="margin-right:10px;">
-									Enable Auto-Shutdown
-								</label>
+								<div style="display: flex; flex-direction: column; gap: 14px;">
+									<!-- Docker Prune Card -->
+									<div class="admin-task-card" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 18px 20px; transition: all 0.2s ease;">
+										<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+											<div style="flex: 1;">
+												<div style="display: flex; align-items: center; gap: 10px;">
+													<div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(167, 139, 250, 0.15); display: flex; align-items: center; justify-content: center; color: #a78bfa;">
+														<i class="fas fa-broom" style="font-size: 14px;"></i>
+													</div>
+													<div>
+														<h4 style="margin: 0; font-size: 15px; font-weight: 600; color: white;">Docker Prune</h4>
+														<p style="margin: 3px 0 0; font-size: 12px; color: var(--text-color-gray);">Remove dangling and untagged Docker images to reclaim host storage.</p>
+													</div>
+												</div>
+											</div>
+											<button class="button-1" onclick="ExecuteAdminTask('prune', this)" style="padding: 6px 14px; font-size: 12px; border-radius: 6px; white-space: nowrap; height: 32px; display: inline-flex; align-items: center; gap: 6px;">
+												<i class="fas fa-play" style="font-size: 10px;"></i> Run Prune
+											</button>
+										</div>
+										<div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+											<div style="display: flex; align-items: center; gap: 8px;">
+												<span style="font-size: 12px; color: var(--text-color-light);">Schedule:</span>
+												<select id="settings-prune-frequency" style="width: auto; height: 30px; padding: 0 10px; font-size: 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white;">
+													<option value="never" ${s.prune_frequency === 'never' ? 'selected' : ''}>Never</option>
+													<option value="daily" ${s.prune_frequency === 'daily' ? 'selected' : ''}>Daily</option>
+													<option value="twice_a_day" ${s.prune_frequency === 'twice_a_day' ? 'selected' : ''}>Twice a day</option>
+													<option value="weekly" ${s.prune_frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
+												</select>
+											</div>
+											<span style="font-size: 12px; color: var(--text-color-gray);">Last run: <span id="last-run-prune">${formatLastRun(s.last_prune_time)}</span></span>
+										</div>
+									</div>
+
+									<!-- Clean Orphans Card -->
+									<div class="admin-task-card" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 18px 20px; transition: all 0.2s ease;">
+										<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+											<div style="flex: 1;">
+												<div style="display: flex; align-items: center; gap: 10px;">
+													<div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); display: flex; align-items: center; justify-content: center; color: #f87171;">
+														<i class="fas fa-box-archive" style="font-size: 14px;"></i>
+													</div>
+													<div>
+														<h4 style="margin: 0; font-size: 15px; font-weight: 600; color: white;">Orphaned Volumes & Configs</h4>
+														<p style="margin: 3px 0 0; font-size: 12px; color: var(--text-color-gray);">Clean leftover temporary working volumes (<code style="background:rgba(0,0,0,0.3); padding:1px 4px; border-radius:3px;">*_working</code>) and stale Nginx configurations.</p>
+													</div>
+												</div>
+											</div>
+											<button class="button-1" onclick="ExecuteAdminTask('clean_orphans', this)" style="padding: 6px 14px; font-size: 12px; border-radius: 6px; white-space: nowrap; height: 32px; display: inline-flex; align-items: center; gap: 6px;">
+												<i class="fas fa-trash-can" style="font-size: 10px;"></i> Clean Now
+											</button>
+										</div>
+										<div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: flex-end;">
+											<span style="font-size: 12px; color: var(--text-color-gray);">Last run: <span id="last-run-clean_orphans">${formatLastRun(s.last_clean_orphans_time)}</span></span>
+										</div>
+									</div>
+								</div>
+							</div>
+
+							<!-- Section 2: Droplet & Resource Automation -->
+							<div>
+								<div style="display:flex; align-items:center; gap: 8px; margin-bottom: 12px;">
+									<i class="fas fa-microchip" style="color: #38bdf8; font-size: 15px;"></i>
+									<h4 style="margin: 0; font-size: 15px; font-weight: 600; color: #f4f4f5; letter-spacing: -0.01em;">Resource Management</h4>
+								</div>
 								
-								<p>Idle Timeout (Minutes)</p>
-								<input type="number" id="settings-idle-timeout" value="${s.idle_timeout_mins}" style="width:100%; padding:8px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); color:white; border-radius:8px;">
+								<div style="display: flex; flex-direction: column; gap: 14px;">
+									<!-- Auto-Shutdown Card -->
+									<div class="admin-task-card" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 18px 20px; transition: all 0.2s ease;">
+										<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+											<div style="flex: 1;">
+												<div style="display: flex; align-items: center; gap: 10px;">
+													<div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
+														<i class="fas fa-power-off" style="font-size: 14px;"></i>
+													</div>
+													<div>
+														<h4 style="margin: 0; font-size: 15px; font-weight: 600; color: white;">Idle Instance Auto-Shutdown</h4>
+														<p style="margin: 3px 0 0; font-size: 12px; color: var(--text-color-gray);">Automatically stop active containers with no network activity and low CPU usage.</p>
+													</div>
+												</div>
+											</div>
+											<button class="button-1" onclick="ExecuteAdminTask('auto_shutdown', this)" style="padding: 6px 14px; font-size: 12px; border-radius: 6px; white-space: nowrap; height: 32px; display: inline-flex; align-items: center; gap: 6px;">
+												<i class="fas fa-bolt" style="font-size: 10px;"></i> Check Now
+											</button>
+										</div>
+										<div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+											<label style="display:flex; align-items:center; cursor:pointer; gap: 8px; font-size: 13px; color: white; margin: 0;">
+												<input type="checkbox" id="settings-auto-shutdown" ${s.auto_shutdown_enabled ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px; margin: 0;">
+												<span>Enable Background Monitoring</span>
+											</label>
+											<div style="display: flex; align-items: center; gap: 8px;">
+												<span style="font-size: 12px; color: var(--text-color-light);">Idle Timeout:</span>
+												<input type="number" id="settings-idle-timeout" value="${s.idle_timeout_mins}" style="width: 70px; height: 30px; padding: 0 8px; font-size: 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; text-align: center;">
+												<span style="font-size: 12px; color: var(--text-color-gray);">mins</span>
+											</div>
+										</div>
+									</div>
+
+									<!-- Instance State Reconciler Card -->
+									<div class="admin-task-card" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 18px 20px; transition: all 0.2s ease;">
+										<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+											<div style="flex: 1;">
+												<div style="display: flex; align-items: center; gap: 10px;">
+													<div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(52, 211, 153, 0.15); display: flex; align-items: center; justify-content: center; color: #34d399;">
+														<i class="fas fa-rotate" style="font-size: 14px;"></i>
+													</div>
+													<div>
+														<h4 style="margin: 0; font-size: 15px; font-weight: 600; color: white;">Instance State Reconciler</h4>
+														<p style="margin: 3px 0 0; font-size: 12px; color: var(--text-color-gray);">Verify database instance states against live Docker containers and fix zombie states.</p>
+													</div>
+												</div>
+											</div>
+											<button class="button-1" onclick="ExecuteAdminTask('reconcile_instances', this)" style="padding: 6px 14px; font-size: 12px; border-radius: 6px; white-space: nowrap; height: 32px; display: inline-flex; align-items: center; gap: 6px;">
+												<i class="fas fa-arrows-rotate" style="font-size: 10px;"></i> Reconcile
+											</button>
+										</div>
+										<div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: flex-end;">
+											<span style="font-size: 12px; color: var(--text-color-gray);">Last run: <span id="last-run-reconcile_instances">${formatLastRun(s.last_reconcile_time)}</span></span>
+										</div>
+									</div>
+								</div>
 							</div>
-							
-							<div class="admin-modal-card" style="padding: 16px; margin-top:20px;">
-								<h3 style="margin:0 0 10px;">Registry Update Schedule</h3>
-								<p class="admin-modal-help-text">Automatically sync the registry in the background.</p>
-								<select id="settings-registry-frequency" style="width:100%; padding: 8px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); color: white; border-radius: 8px;">
-									<option value="never" ${s.update_registry_frequency === 'never' ? 'selected' : ''}>Never</option>
-									<option value="daily" ${s.update_registry_frequency === 'daily' ? 'selected' : ''}>Daily</option>
-									<option value="twice_a_day" ${s.update_registry_frequency === 'twice_a_day' ? 'selected' : ''}>Twice a day</option>
-									<option value="weekly" ${s.update_registry_frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
-								</select>
+
+							<!-- Section 3: Catalogs & Image Updates -->
+							<div>
+								<div style="display:flex; align-items:center; gap: 8px; margin-bottom: 12px;">
+									<i class="fas fa-cloud-arrow-down" style="color: #fbbf24; font-size: 15px;"></i>
+									<h4 style="margin: 0; font-size: 15px; font-weight: 600; color: #f4f4f5; letter-spacing: -0.01em;">Catalogs & Updates</h4>
+								</div>
+								
+								<div style="display: flex; flex-direction: column; gap: 14px;">
+									<!-- Registry Sync Card -->
+									<div class="admin-task-card" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 18px 20px; transition: all 0.2s ease;">
+										<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+											<div style="flex: 1;">
+												<div style="display: flex; align-items: center; gap: 10px;">
+													<div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(251, 191, 36, 0.15); display: flex; align-items: center; justify-content: center; color: #fbbf24;">
+														<i class="fas fa-cloud-arrow-down" style="font-size: 14px;"></i>
+													</div>
+													<div>
+														<h4 style="margin: 0; font-size: 15px; font-weight: 600; color: white;">Registry Sync</h4>
+														<p style="margin: 3px 0 0; font-size: 12px; color: var(--text-color-gray);">Synchronize droplet templates and catalog metadata from configured registries.</p>
+													</div>
+												</div>
+											</div>
+											<button class="button-1" onclick="ExecuteAdminTask('sync_registry', this)" style="padding: 6px 14px; font-size: 12px; border-radius: 6px; white-space: nowrap; height: 32px; display: inline-flex; align-items: center; gap: 6px;">
+												<i class="fas fa-rotate" style="font-size: 10px;"></i> Sync Now
+											</button>
+										</div>
+										<div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+											<div style="display: flex; align-items: center; gap: 8px;">
+												<span style="font-size: 12px; color: var(--text-color-light);">Schedule:</span>
+												<select id="settings-registry-frequency" style="width: auto; height: 30px; padding: 0 10px; font-size: 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white;">
+													<option value="never" ${s.update_registry_frequency === 'never' ? 'selected' : ''}>Never</option>
+													<option value="daily" ${s.update_registry_frequency === 'daily' ? 'selected' : ''}>Daily</option>
+													<option value="twice_a_day" ${s.update_registry_frequency === 'twice_a_day' ? 'selected' : ''}>Twice a day</option>
+													<option value="weekly" ${s.update_registry_frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
+												</select>
+											</div>
+											<span style="font-size: 12px; color: var(--text-color-gray);">Last run: <span id="last-run-sync_registry">${formatLastRun(s.last_registry_update_time)}</span></span>
+										</div>
+									</div>
+
+									<!-- Docker Images Auto-Update Card -->
+									<div class="admin-task-card" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 18px 20px; transition: all 0.2s ease;">
+										<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+											<div style="flex: 1;">
+												<div style="display: flex; align-items: center; gap: 10px;">
+													<div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(96, 165, 250, 0.15); display: flex; align-items: center; justify-content: center; color: #60a5fa;">
+														<i class="fab fa-docker" style="font-size: 16px;"></i>
+													</div>
+													<div>
+														<h4 style="margin: 0; font-size: 15px; font-weight: 600; color: white;">Docker Images Auto-Update</h4>
+														<p style="margin: 3px 0 0; font-size: 12px; color: var(--text-color-gray);">Pull the latest upstream container image updates for registered droplet templates.</p>
+													</div>
+												</div>
+											</div>
+											<button class="button-1" onclick="ExecuteAdminTask('update_images', this)" style="padding: 6px 14px; font-size: 12px; border-radius: 6px; white-space: nowrap; height: 32px; display: inline-flex; align-items: center; gap: 6px;">
+												<i class="fas fa-download" style="font-size: 10px;"></i> Pull All Now
+											</button>
+										</div>
+										<div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+											<div style="display: flex; align-items: center; gap: 8px;">
+												<span style="font-size: 12px; color: var(--text-color-light);">Schedule:</span>
+												<select id="settings-images-frequency" style="width: auto; height: 30px; padding: 0 10px; font-size: 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white;">
+													<option value="never" ${s.update_images_frequency === 'never' ? 'selected' : ''}>Never</option>
+													<option value="daily" ${s.update_images_frequency === 'daily' ? 'selected' : ''}>Daily</option>
+													<option value="twice_a_day" ${s.update_images_frequency === 'twice_a_day' ? 'selected' : ''}>Twice a day</option>
+													<option value="weekly" ${s.update_images_frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
+												</select>
+											</div>
+											<span style="font-size: 12px; color: var(--text-color-gray);">Last run: <span id="last-run-update_images">${formatLastRun(s.last_images_update_time)}</span></span>
+										</div>
+									</div>
+								</div>
 							</div>
-							
-							<div class="admin-modal-card" style="padding: 16px; margin-top:20px;">
-								<h3 style="margin:0 0 10px;">Docker Images Update Schedule</h3>
-								<p class="admin-modal-help-text">Automatically pull the latest Docker images for your droplets.</p>
-								<select id="settings-images-frequency" style="width:100%; padding: 8px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); color: white; border-radius: 8px;">
-									<option value="never" ${s.update_images_frequency === 'never' ? 'selected' : ''}>Never</option>
-									<option value="daily" ${s.update_images_frequency === 'daily' ? 'selected' : ''}>Daily</option>
-									<option value="twice_a_day" ${s.update_images_frequency === 'twice_a_day' ? 'selected' : ''}>Twice a day</option>
-									<option value="weekly" ${s.update_images_frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
-								</select>
-							</div>
-							
-							<div style="margin-top: 20px;">
-								<button class="button-1-full" onclick="SaveAdminSettings()">Save Settings</button>
+
+							<!-- Save Action -->
+							<div style="margin-top: 10px; display: flex; justify-content: flex-end;">
+								<button class="button-1-full" id="btn-save-tasks-settings" onclick="SaveAdminSettings()" style="padding: 12px 28px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+									<i class="fas fa-floppy-disk"></i> Save Schedule Settings
+								</button>
 							</div>
 						</div>
 					`;
@@ -961,12 +1210,18 @@ function AdminChangeTab(tab, element = null)
 }
 
 function SaveAdminSettings() {
+	var btn = document.getElementById('btn-save-tasks-settings');
+	if (btn) {
+		btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+		btn.style.pointerEvents = 'none';
+	}
+
 	var data = {
-		prune_frequency: document.getElementById('settings-prune-frequency').value,
-		update_registry_frequency: document.getElementById('settings-registry-frequency').value,
-		update_images_frequency: document.getElementById('settings-images-frequency').value,
-		auto_shutdown_enabled: document.getElementById('settings-auto-shutdown').checked,
-		idle_timeout_mins: document.getElementById('settings-idle-timeout').value
+		prune_frequency: document.getElementById('settings-prune-frequency') ? document.getElementById('settings-prune-frequency').value : 'never',
+		update_registry_frequency: document.getElementById('settings-registry-frequency') ? document.getElementById('settings-registry-frequency').value : 'never',
+		update_images_frequency: document.getElementById('settings-images-frequency') ? document.getElementById('settings-images-frequency').value : 'never',
+		auto_shutdown_enabled: document.getElementById('settings-auto-shutdown') ? document.getElementById('settings-auto-shutdown').checked : false,
+		idle_timeout_mins: document.getElementById('settings-idle-timeout') ? parseInt(document.getElementById('settings-idle-timeout').value, 10) || 30 : 30
 	};
 	
 	fetch('/api/admin/settings', {
@@ -974,8 +1229,54 @@ function SaveAdminSettings() {
 		headers: {'Content-Type': 'application/json'},
 		body: JSON.stringify(data)
 	}).then(r => r.json()).then(json => {
-		if(json.success) CreateNotification(json.message, "success");
-		else CreateNotification(json.error, "error");
+		if (btn) {
+			btn.innerHTML = '<i class="fas fa-floppy-disk"></i> Save Schedule Settings';
+			btn.style.pointerEvents = 'auto';
+		}
+		if (json.success) CreateNotification(json.message || "Settings saved successfully.", "success");
+		else CreateNotification(json.error || "Failed to save settings.", "error");
+	}).catch(err => {
+		if (btn) {
+			btn.innerHTML = '<i class="fas fa-floppy-disk"></i> Save Schedule Settings';
+			btn.style.pointerEvents = 'auto';
+		}
+		CreateNotification("Error saving settings: " + err, "error");
+	});
+}
+
+function ExecuteAdminTask(taskName, btn) {
+	if (!btn) return;
+	var originalHtml = btn.innerHTML;
+	btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running...';
+	btn.style.pointerEvents = 'none';
+	btn.style.opacity = '0.7';
+
+	fetch('/api/admin/tasks/' + taskName + '/run', {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'}
+	})
+	.then(r => r.json())
+	.then(json => {
+		btn.innerHTML = originalHtml;
+		btn.style.pointerEvents = 'auto';
+		btn.style.opacity = '1';
+
+		if (json.success) {
+			CreateNotification(json.message || "Task completed successfully.", "success");
+			var label = document.getElementById('last-run-' + taskName);
+			if (label) {
+				var now = new Date();
+				label.innerHTML = '<span style="color: #60a5fa;">' + now.toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) + '</span>';
+			}
+		} else {
+			CreateNotification(json.error || "Task execution failed.", "error");
+		}
+	})
+	.catch(err => {
+		btn.innerHTML = originalHtml;
+		btn.style.pointerEvents = 'auto';
+		btn.style.opacity = '1';
+		CreateNotification("Error executing task: " + err, "error");
 	});
 }
 

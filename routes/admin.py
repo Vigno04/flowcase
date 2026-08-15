@@ -120,35 +120,45 @@ def api_admin_instances():
 		"instances": []
 	}
  
+	# Batch fetch all containers once to avoid N roundtrips over socket
+	containers_map = {}
+	if utils.docker.is_docker_available():
+		try:
+			for c in utils.docker.docker_client.containers.list(all=True):
+				containers_map[c.name] = c
+		except Exception:
+			pass
+
 	for instance in instances:
 		try:
 			droplet = Droplet.query.filter_by(id=instance.droplet_id).first()
 			user = User.query.filter_by(id=instance.user_id).first()
-			container = utils.docker.docker_client.containers.get(f"flowcase_generated_{instance.id}")
+			container = containers_map.get(f"flowcase_generated_{instance.id}")
+			ip = get_container_ip(container, droplet) if container else "N/A"
+			
 			response["instances"].append({
 				"id": instance.id,
 				"created_at": instance.created_at,
 				"updated_at": instance.updated_at,
 				"status": instance.status,
-				"ip": get_container_ip(container, droplet),
+				"ip": ip,
 				"droplet": {
-					"id": droplet.id,
-					"display_name": droplet.display_name,
-					"description": droplet.description,
-					"container_docker_image": droplet.container_docker_image,
-					"container_docker_registry": droplet.container_docker_registry,
-					"container_cores": droplet.container_cores,
-					"container_memory": droplet.container_memory,
-					"container_network": droplet.container_network,
-					"image_path": droplet.image_path
+					"id": droplet.id if droplet else None,
+					"display_name": droplet.display_name if droplet else "Unknown",
+					"description": droplet.description if droplet else "",
+					"container_docker_image": droplet.container_docker_image if droplet else None,
+					"container_docker_registry": droplet.container_docker_registry if droplet else None,
+					"container_cores": droplet.container_cores if droplet else 1,
+					"container_memory": droplet.container_memory if droplet else 1,
+					"container_network": droplet.container_network if droplet else None,
+					"image_path": droplet.image_path if droplet else None
 				},
 				"user": {
-					"id": user.id,
-					"username": user.username
+					"id": user.id if user else None,
+					"username": user.username if user else "Unknown"
 				}
 			})
 		except Exception as e:
-			# Skip this instance if we can't get container info
 			continue
  
 	return jsonify(response)
@@ -1081,7 +1091,14 @@ def api_admin_settings():
 		settings = {
 			"prune_frequency": SystemSetting.get('prune_frequency', 'never'),
 			"auto_shutdown_enabled": SystemSetting.get('auto_shutdown_enabled', 'false') == 'true',
-			"idle_timeout_mins": int(SystemSetting.get('idle_timeout_mins', '30'))
+			"idle_timeout_mins": int(SystemSetting.get('idle_timeout_mins', '30')),
+			"update_registry_frequency": SystemSetting.get('update_registry_frequency', 'never'),
+			"update_images_frequency": SystemSetting.get('update_images_frequency', 'never'),
+			"last_prune_time": SystemSetting.get('last_prune_time', None),
+			"last_registry_update_time": SystemSetting.get('last_registry_update_time', None),
+			"last_images_update_time": SystemSetting.get('last_images_update_time', None),
+			"last_clean_orphans_time": SystemSetting.get('last_clean_orphans_time', None),
+			"last_reconcile_time": SystemSetting.get('last_reconcile_time', None),
 		}
 		return jsonify({"success": True, "settings": settings})
 	elif request.method == 'POST':
@@ -1089,10 +1106,48 @@ def api_admin_settings():
 		SystemSetting.set('prune_frequency', data.get('prune_frequency', 'never'))
 		SystemSetting.set('auto_shutdown_enabled', 'true' if data.get('auto_shutdown_enabled') else 'false')
 		SystemSetting.set('idle_timeout_mins', data.get('idle_timeout_mins', 30))
-		return jsonify({"success": True, "message": "Settings saved."})
+		SystemSetting.set('update_registry_frequency', data.get('update_registry_frequency', 'never'))
+		SystemSetting.set('update_images_frequency', data.get('update_images_frequency', 'never'))
+		return jsonify({"success": True, "message": "Settings saved successfully."})
+
+@admin_bp.route('/tasks/<string:task_name>/run', methods=['POST'])
+@login_required
+def api_admin_run_task(task_name: str):
+	if not Permissions.check_permission(current_user.id, Permissions.ADMIN_PANEL):
+		return jsonify({"success": False, "error": "Unauthorized"}), 403
+		
+	from utils.scheduler import (
+		task_docker_prune,
+		task_auto_shutdown,
+		task_update_registry,
+		task_update_images,
+		task_clean_orphans,
+		task_reconcile_instances
+	)
+	
+	task_map = {
+		"prune": task_docker_prune,
+		"auto_shutdown": task_auto_shutdown,
+		"sync_registry": task_update_registry,
+		"update_images": task_update_images,
+		"clean_orphans": task_clean_orphans,
+		"reconcile_instances": task_reconcile_instances
+	}
+	
+	func = task_map.get(task_name)
+	if not func:
+		return jsonify({"success": False, "error": f"Unknown task '{task_name}'"}), 400
+		
+	try:
+		result = func()
+		return jsonify(result)
+	except Exception as e:
+		return jsonify({"success": False, "error": str(e)}), 500
 
 # Cache for stats endpoint to avoid repeated slow Docker API calls
 _STATS_CACHE_FILE = '/tmp/flowcase_stats_cache.json'
+_DISK_CACHE_FILE = '/tmp/flowcase_disk_cache.json'
+_DISK_CACHE_TTL = 60 # 60 seconds TTL for heavy docker.api.df()
 _stats_update_lock = None
 
 def get_stats_cache():
@@ -1112,6 +1167,26 @@ def set_stats_cache(data):
         import time
         with open(_STATS_CACHE_FILE, 'w') as f:
             json.dump({"data": data, "timestamp": time.time()}, f)
+    except Exception:
+        pass
+
+def get_disk_cache():
+    try:
+        import json, os, time
+        if os.path.exists(_DISK_CACHE_FILE):
+            with open(_DISK_CACHE_FILE, 'r') as f:
+                data = json.load(f)
+                if (time.time() - data.get("timestamp", 0)) < _DISK_CACHE_TTL:
+                    return data.get("disk_used", 0)
+    except Exception:
+        pass
+    return None
+
+def set_disk_cache(disk_used):
+    try:
+        import json, time
+        with open(_DISK_CACHE_FILE, 'w') as f:
+            json.dump({"disk_used": disk_used, "timestamp": time.time()}, f)
     except Exception:
         pass
 
@@ -1151,7 +1226,6 @@ def _update_stats_cache_background():
         return  # Another update is in progress
 
     try:
-        # Non-blocking CPU percent (interval=None returns immediately)
         cpu_usage = psutil.cpu_percent(interval=0.1)
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
@@ -1165,70 +1239,100 @@ def _update_stats_cache_background():
                 "running_containers": len(running_flowcase_containers)
             }
 
-            # Get disk usage from docker system df - with timeout
-            flowcase_disk_used = 0
-            try:
-                df = utils.docker.docker_client.api.df()
-                
-                # Get image IDs used by droplet containers
-                used_image_ids = {c.image.id for c in flowcase_containers}
-                
-                for c in df.get('Containers', []):
-                    if any(name.strip('/').startswith('flowcase_generated_') for name in c.get('Names', [])):
-                        flowcase_disk_used += c.get('SizeRw', 0)
-                        
-                for img in df.get('Images', []):
-                    tags = img.get('RepoTags') or []
-                    is_flowcase_related = (
-                        img.get('Id') in used_image_ids or 
-                        any('flowcase' in tag.lower() or 'vigno04' in tag.lower() for tag in tags)
-                    )
-                    if is_flowcase_related:
-                        unique_size = img.get('Size', 0) - img.get('SharedSize', 0)
-                        flowcase_disk_used += max(0, unique_size)
-                        
-                for vol in df.get('Volumes', []):
-                    if vol.get('Name', '').startswith('flowcase_shared_'):
-                        flowcase_disk_used += vol.get('UsageData', {}).get('Size', 0)
-                logger.info(f"Stats background update: flowcase_disk_used={flowcase_disk_used}")
-            except Exception as e:
-                logger.warning(f"Stats background update: docker df error: {e}")
+            # Disk usage: use 60s cache to avoid running heavy docker df on every tick
+            flowcase_disk_used = get_disk_cache()
+            if flowcase_disk_used is None:
+                flowcase_disk_used = 0
+                try:
+                    df = utils.docker.docker_client.api.df()
+                    used_image_ids = {c.image.id for c in flowcase_containers if hasattr(c, 'image')}
+                    
+                    for c in df.get('Containers', []):
+                        if any(name.strip('/').startswith('flowcase_generated_') for name in c.get('Names', [])):
+                            flowcase_disk_used += c.get('SizeRw', 0)
+                            
+                    for img in df.get('Images', []):
+                        tags = img.get('RepoTags') or []
+                        is_flowcase_related = (
+                            img.get('Id') in used_image_ids or 
+                            any('flowcase' in tag.lower() or 'vigno04' in tag.lower() for tag in tags)
+                        )
+                        if is_flowcase_related:
+                            unique_size = img.get('Size', 0) - img.get('SharedSize', 0)
+                            flowcase_disk_used += max(0, unique_size)
+                            
+                    for vol in df.get('Volumes', []):
+                        if vol.get('Name', '').startswith('flowcase_shared_'):
+                            flowcase_disk_used += vol.get('UsageData', {}).get('Size', 0)
+                    
+                    set_disk_cache(flowcase_disk_used)
+                except Exception as e:
+                    logger.warning(f"Stats background update: docker df error: {e}")
+                    flowcase_disk_used = 0
 
-            # Get container stats in parallel with a timeout
+            # Get container stats in parallel with per-instance breakdown
             flowcase_memory_used = 0
             flowcase_cpu_percent = 0.0
+            instances_stats = {}
 
             def get_container_stats(c):
                 try:
-                    return c.stats(stream=False)
-                except:
+                    stats = c.stats(stream=False)
+                    name = c.name
+                    instance_id = name.replace('flowcase_generated_', '')
+
+                    mem_stats = stats.get('memory_stats', {})
+                    mem_usage = mem_stats.get('usage', 0)
+                    mem_cache = mem_stats.get('stats', {}).get('cache', 0)
+                    actual_mem = max(0, mem_usage - mem_cache)
+                    mem_limit = mem_stats.get('limit', 0)
+                    mem_pct = round((actual_mem / mem_limit) * 100.0, 1) if mem_limit > 0 else 0.0
+
+                    cpu_stats = stats.get('cpu_stats', {})
+                    precpu_stats = stats.get('precpu_stats', {})
+                    cpu_delta = cpu_stats.get('cpu_usage', {}).get('total_usage', 0) - precpu_stats.get('cpu_usage', {}).get('total_usage', 0)
+                    system_delta = cpu_stats.get('system_cpu_usage', 0) - precpu_stats.get('system_cpu_usage', 0)
+                    
+                    inst_cpu_pct = 0.0
+                    if system_delta > 0 and cpu_delta > 0:
+                        online_cpus = cpu_stats.get('online_cpus', len(cpu_stats.get('cpu_usage', {}).get('percpu_usage', [1])))
+                        inst_cpu_pct = round((cpu_delta / system_delta) * online_cpus * 100.0, 1)
+
+                    net_stats = stats.get('networks', {})
+                    rx_bytes = sum(net.get('rx_bytes', 0) for net in net_stats.values()) if net_stats else 0
+                    tx_bytes = sum(net.get('tx_bytes', 0) for net in net_stats.values()) if net_stats else 0
+
+                    return {
+                        "instance_id": instance_id,
+                        "cpu_percent": inst_cpu_pct,
+                        "memory_used": actual_mem,
+                        "memory_limit": mem_limit,
+                        "memory_percent": mem_pct,
+                        "net_rx": rx_bytes,
+                        "net_tx": tx_bytes,
+                        "status": c.status
+                    }
+                except Exception:
                     return None
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
                 future_to_container = {executor.submit(get_container_stats, c): c for c in running_flowcase_containers}
                 results = []
-                for future in concurrent.futures.as_completed(future_to_container, timeout=10):
+                for future in concurrent.futures.as_completed(future_to_container, timeout=6):
                     try:
                         result = future.result()
                         if result:
                             results.append(result)
-                    except:
+                    except Exception:
                         pass
 
-            for stats in results:
-                if not stats: continue
-                mem_usage = stats.get('memory_stats', {}).get('usage', 0)
-                mem_cache = stats.get('memory_stats', {}).get('stats', {}).get('cache', 0)
-                flowcase_memory_used += max(0, mem_usage - mem_cache)
-
-                cpu_stats = stats.get('cpu_stats', {})
-                precpu_stats = stats.get('precpu_stats', {})
-                cpu_delta = cpu_stats.get('cpu_usage', {}).get('total_usage', 0) - precpu_stats.get('cpu_usage', {}).get('total_usage', 0)
-                system_delta = cpu_stats.get('system_cpu_usage', 0) - precpu_stats.get('system_cpu_usage', 0)
-                if system_delta > 0 and cpu_delta > 0:
-                    import psutil
-                    online_cpus = cpu_stats.get('online_cpus', len(cpu_stats.get('cpu_usage', {}).get('percpu_usage', [1])))
-                    flowcase_cpu_percent += ((cpu_delta / system_delta) * online_cpus * 100.0) / (psutil.cpu_count() or 1)
+            host_cpu_count = psutil.cpu_count() or 1
+            for stat in results:
+                if not stat: continue
+                inst_id = stat["instance_id"]
+                instances_stats[inst_id] = stat
+                flowcase_memory_used += stat["memory_used"]
+                flowcase_cpu_percent += (stat["cpu_percent"] / host_cpu_count)
 
         except Exception as e:
             logger.error(f"Stats background update error: {e}")
@@ -1236,6 +1340,7 @@ def _update_stats_cache_background():
             flowcase_disk_used = 0
             flowcase_memory_used = 0
             flowcase_cpu_percent = 0.0
+            instances_stats = {}
 
         response = {
             "success": True,
@@ -1255,6 +1360,7 @@ def _update_stats_cache_background():
                 "memory_used": flowcase_memory_used,
                 "cpu_percent": round(flowcase_cpu_percent, 1)
             },
+            "instances": instances_stats,
             "docker": docker_stats,
             "last_updated": time.time()
         }
@@ -1277,16 +1383,13 @@ def api_admin_stats():
     # Check cache first
     current_time = time.time()
     cache_obj = get_stats_cache()
-    _STATS_CACHE_TTL = 10
+    _STATS_CACHE_TTL = 5
     
     if cache_obj["data"] and (current_time - cache_obj["timestamp"]) < _STATS_CACHE_TTL:
         return jsonify(cache_obj["data"])
 
-    # If cache is stale or empty, trigger background update and return stale data immediately
-    # (or return basic system stats if no cache exists)
     if cache_obj["data"]:
         # Return stale data immediately, trigger background update
-        # Set timestamp NOW so that other workers don't spawn multiple threads in this TTL cycle
         set_stats_cache(cache_obj["data"])
         threading.Thread(target=_update_stats_cache_background, daemon=True).start()
         return jsonify(cache_obj["data"])

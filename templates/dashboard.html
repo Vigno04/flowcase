@@ -645,18 +645,39 @@
 
             let name = instance.custom_name || instance.droplet.display_name;
             let date = new Date(instance.updated_at).toLocaleString();
-            let snapSize = formatBytes(instance.snapshot_size);
-            let baseSize = formatBytes(instance.base_image_size);
-            let extraSize = instance.snapshot_size > 0 && instance.base_image_size > 0 ? formatBytes(instance.snapshot_size - instance.base_image_size) : "N/A";
             
             header.innerText = "Instance Info: " + name;
             subtext.innerHTML = `
                 <b>Based on:</b> ${instance.droplet.display_name}<br>
                 <b>Last saved:</b> ${date}<br><br>
-                <b>Base Image Size:</b> ${baseSize}<br>
-                <b>Extra Data Saved:</b> ${extraSize}<br>
-                <b>Total Snapshot Size:</b> ${snapSize}
+                <b>Base Image Size:</b> <span id="info-base-size"><i class="fas fa-spinner fa-spin" style="font-size: 11px;"></i> Calculating...</span><br>
+                <b>Extra Data Saved:</b> <span id="info-extra-size"><i class="fas fa-spinner fa-spin" style="font-size: 11px;"></i> Calculating...</span><br>
+                <b>Total Snapshot Size:</b> <span id="info-snap-size"><i class="fas fa-spinner fa-spin" style="font-size: 11px;"></i> Calculating...</span>
             `;
+
+            fetch(`/api/instance/${instanceId}/size_info`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        let baseSize = formatBytes(data.base_image_size);
+                        let snapSize = formatBytes(data.snapshot_size);
+                        let extraSize = data.snapshot_size > 0 && data.base_image_size > 0 ? formatBytes(data.snapshot_size - data.base_image_size) : "N/A";
+                        let baseEl = document.getElementById('info-base-size');
+                        let extraEl = document.getElementById('info-extra-size');
+                        let snapEl = document.getElementById('info-snap-size');
+                        if (baseEl) baseEl.innerText = baseSize;
+                        if (extraEl) extraEl.innerText = extraSize;
+                        if (snapEl) snapEl.innerText = snapSize;
+                    }
+                })
+                .catch(() => {
+                    let baseEl = document.getElementById('info-base-size');
+                    let extraEl = document.getElementById('info-extra-size');
+                    let snapEl = document.getElementById('info-snap-size');
+                    if (baseEl) baseEl.innerText = "N/A";
+                    if (extraEl) extraEl.innerText = "N/A";
+                    if (snapEl) snapEl.innerText = "N/A";
+                });
 
             let headerActions = document.getElementById('model-header-actions');
             if (headerActions) {

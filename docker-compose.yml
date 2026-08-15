@@ -17,6 +17,7 @@ services:
       - NGINX_CONTAINER_NAME=${NGINX_CONTAINER_NAME:-flowcase-nginx}
       - FLOWCASE_NETWORK=${FLOWCASE_NETWORK:-flowcase_default_network}
       - WEB_CONTAINER_NAME=${WEB_CONTAINER_NAME:-flowcase}
+      - DOCKER_CLIENT_TIMEOUT=${DOCKER_CLIENT_TIMEOUT:-600}
     networks:
       - default_network
     command: python run.py

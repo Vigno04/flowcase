@@ -48,16 +48,3 @@ def on_starting(server):
 		initialize_database_and_setup()
 	
 	cleanup_containers(temp_app)
-	
-	# start background thread for periodic image checks
-	def pull_images_worker():
-		while True:
-			try:
-				time.sleep(60)
-				with temp_app.app_context():
-					pull_images()
-			except Exception as e:
-				print(f"Error in pull_images_worker: {e}")
-	
-	thread = threading.Thread(target=pull_images_worker, daemon=True)
-	thread.start()

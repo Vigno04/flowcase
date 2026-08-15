@@ -147,33 +147,6 @@ def get_instances():
 		snapshot_size = 0
 		snapshot_created = None
 		base_image_size = 0
-
-		if utils.docker.is_docker_available():
-			try:
-				local_images = utils.docker.docker_client.images.list()
-				
-				if instance.snapshot_image_name:
-					snap_image_name = instance.snapshot_image_name
-					log("INFO", f"Checking snapshot size for {snap_image_name}")
-					for img in local_images:
-						if any(snap_image_name in tag for tag in img.tags):
-							snapshot_size = img.attrs.get('Size', 0)
-							snapshot_created = img.attrs.get('Created', None)
-							log("INFO", f"Found snapshot size: {snapshot_size}")
-							break
-					if snapshot_size == 0:
-						log("INFO", f"Failed to find snapshot size for {snap_image_name} in {len(local_images)} local images")
-				if droplet.container_docker_image:
-					image_name = droplet.container_docker_image
-					if droplet.container_docker_registry and "docker.io" not in droplet.container_docker_registry:
-						image_name = droplet.container_docker_registry.rstrip("/") + "/" + image_name
-					# Use tag-based list match (same approach as the rest of the codebase)
-					for img in local_images:
-						if any(image_name == tag for tag in img.tags):
-							base_image_size = img.attrs.get('Size', 0)
-							break
-			except Exception:
-				pass
 			
 		response["instances"].append({
 			"id": instance.id,
@@ -614,11 +587,16 @@ def write_nginx_config(instance: DropletInstance, nginx_config: str):
 		f.write(nginx_config)
 
 def reload_nginx():
-	nginx_name = os.environ.get("NGINX_CONTAINER_NAME", "flowcase-nginx")
-	nginx_container = utils.docker.docker_client.containers.get(nginx_name)
-	result = nginx_container.exec_run("nginx -s reload")
-	if result.exit_code != 0:
-		log("WARNING", f"Failed to reload Nginx: {result.output.decode()}")
+	try:
+		if not utils.docker.is_docker_available():
+			return
+		nginx_name = os.environ.get("NGINX_CONTAINER_NAME", "flowcase-nginx")
+		nginx_container = utils.docker.docker_client.containers.get(nginx_name)
+		result = nginx_container.exec_run("nginx -s reload")
+		if result.exit_code != 0:
+			log("WARNING", f"Failed to reload Nginx: {result.output.decode()}")
+	except Exception as e:
+		log("WARNING", f"Failed to reload Nginx: {str(e)}")
 
 @droplet_bp.route('/api/droplet/<int:droplet_id>/pull-image', methods=['POST'])
 @login_required
@@ -968,18 +946,55 @@ def background_save_task(app, instance_id, custom_name):
 					except Exception as e:
 						log("ERROR", f"Failed to process volume save: {str(e)}")
 			
-			container.remove(force=True)
+			try:
+				container.remove(force=True)
+			except Exception as e:
+				log("WARNING", f"Failed to remove container {container_name}: {str(e)}")
 			
 			instance.status = "saved"
 			if custom_name:
 				instance.custom_name = custom_name
 			
 			if os.path.exists(f"/flowcase/nginx/containers.d/{instance.id}.conf"):
-				os.remove(f"/flowcase/nginx/containers.d/{instance.id}.conf")
-				reload_nginx()
+				try:
+					os.remove(f"/flowcase/nginx/containers.d/{instance.id}.conf")
+					reload_nginx()
+				except Exception as e:
+					log("WARNING", f"Failed to clean up nginx configuration: {str(e)}")
 			db.session.commit()
 		except Exception as e:
 			log("ERROR", f"Error in background save for {instance_id}: {str(e)}")
+			try:
+				db.session.rollback()
+				inst = DropletInstance.query.filter_by(id=instance_id).first()
+				if inst:
+					# Check if snapshot image was created in Docker despite client timeout/error
+					snapshot_name = f"flowcase_save_{instance_id}"
+					snapshot_exists = False
+					if utils.docker.is_docker_available():
+						try:
+							utils.docker.docker_client.images.get(snapshot_name)
+							snapshot_exists = True
+						except Exception:
+							pass
+					
+					if snapshot_exists:
+						inst.snapshot_image_name = snapshot_name
+						inst.status = "saved"
+						if custom_name:
+							inst.custom_name = custom_name
+						log("INFO", f"Recovered save for {instance_id}: snapshot image {snapshot_name} found in Docker")
+						try:
+							container_name = f"flowcase_generated_{instance_id}"
+							utils.docker.docker_client.containers.get(container_name).remove(force=True)
+						except Exception:
+							pass
+					else:
+						# If save failed and snapshot not found, do not leave in 'saving' state
+						inst.status = "error"
+					db.session.commit()
+			except Exception as recovery_err:
+				log("ERROR", f"Failed error recovery for instance {instance_id}: {str(recovery_err)}")
 
 @droplet_bp.route('/api/instance/<string:instance_id>/save', methods=['POST'])
 @login_required
@@ -1104,8 +1119,11 @@ def background_save_as_task(app, original_instance_id, new_instance_id, is_dupli
 			if not is_duplicate:
 				# Cleanup nginx
 				if os.path.exists(f"/flowcase/nginx/containers.d/{original_instance.id}.conf"):
-					os.remove(f"/flowcase/nginx/containers.d/{original_instance.id}.conf")
-					reload_nginx()
+					try:
+						os.remove(f"/flowcase/nginx/containers.d/{original_instance.id}.conf")
+						reload_nginx()
+					except Exception as e:
+						log("WARNING", f"Failed to clean up nginx configuration: {str(e)}")
 				
 				# If original instance is a fresh instance, delete it.
 				# If it's a resumed instance, revert its status to saved.
@@ -1120,6 +1138,17 @@ def background_save_as_task(app, original_instance_id, new_instance_id, is_dupli
 			db.session.commit()
 		except Exception as e:
 			log("ERROR", f"Error in background save_as for {original_instance_id}: {str(e)}")
+			try:
+				db.session.rollback()
+				orig = DropletInstance.query.filter_by(id=original_instance_id).first()
+				new_inst = DropletInstance.query.filter_by(id=new_instance_id).first()
+				if orig and orig.status in ["saving", "duplicating", "terminating"]:
+					orig.status = "saved" if is_duplicate or orig.custom_name else "error"
+				if new_inst and new_inst.status in ["saving", "duplicating"]:
+					new_inst.status = "error"
+				db.session.commit()
+			except Exception as recovery_err:
+				log("ERROR", f"Failed error recovery for save_as instance {original_instance_id}: {str(recovery_err)}")
 
 @droplet_bp.route('/api/instance/<string:instance_id>/save_as', methods=['POST'])
 @login_required
@@ -1366,3 +1395,54 @@ def resume_instance(instance_id: str):
 		except:
 			pass
 		return jsonify({"success": False, "error": f"Failed to resume container: {str(e)}"}), 500
+
+@droplet_bp.route('/api/instance/<string:instance_id>/size_info', methods=['GET'])
+@login_required
+def get_instance_size_info(instance_id: str):
+	instance = DropletInstance.query.filter_by(id=instance_id).first()
+	if not instance:
+		return jsonify({"success": False, "error": "Instance not found"}), 404
+	
+	if instance.user_id != current_user.id:
+		is_admin = False
+		user_groups = current_user.get_groups()
+		for group_id in user_groups:
+			group = Group.query.filter_by(id=group_id).first()
+			if group and group.permissions and group.permissions.get("perm_admin_panel"):
+				is_admin = True
+				break
+		if not is_admin:
+			return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+	droplet = Droplet.query.filter_by(id=instance.droplet_id).first()
+	snapshot_size = 0
+	snapshot_created = None
+	base_image_size = 0
+
+	if utils.docker.is_docker_available():
+		try:
+			local_images = utils.docker.docker_client.images.list()
+			if instance.snapshot_image_name:
+				snap_image_name = instance.snapshot_image_name
+				for img in local_images:
+					if any(snap_image_name in tag for tag in img.tags):
+						snapshot_size = img.attrs.get('Size', 0)
+						snapshot_created = img.attrs.get('Created', None)
+						break
+			if droplet and droplet.container_docker_image:
+				image_name = droplet.container_docker_image
+				if droplet.container_docker_registry and "docker.io" not in droplet.container_docker_registry:
+					image_name = droplet.container_docker_registry.rstrip("/") + "/" + image_name
+				for img in local_images:
+					if any(image_name == tag for tag in img.tags):
+						base_image_size = img.attrs.get('Size', 0)
+						break
+		except Exception as e:
+			log("ERROR", f"Error querying size info for instance {instance_id}: {str(e)}")
+
+	return jsonify({
+		"success": True,
+		"snapshot_size": snapshot_size,
+		"snapshot_created": snapshot_created,
+		"base_image_size": base_image_size
+	})

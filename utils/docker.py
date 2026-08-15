@@ -13,7 +13,8 @@ def init_docker():
 		return docker_client
 		
 	try:
-		docker_client = docker.DockerClient(base_url=os.getenv("DOCKER_HOST"))
+		timeout = int(os.getenv("DOCKER_CLIENT_TIMEOUT", 600))
+		docker_client = docker.DockerClient(base_url=os.getenv("DOCKER_HOST"), timeout=timeout)
 		docker_client.ping()
 
 		ensure_default_network()
